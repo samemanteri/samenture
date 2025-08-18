@@ -30,6 +30,15 @@ class GameScene extends Phaser.Scene {
 
     // World persistence diff
     this.worldDiff = { removed: [], placed: [] }; // removed: ["tx,ty"], placed: [{tx,ty,type,textureKey}]
+
+    // Character customization and outfit
+    this.custom = { shirtColor: '#4477ff', pantsColor: '#333333', eyesGlow: false, outfit: 'none' };
+
+    // Tool system
+    this.tools = {
+      owned: { hand: true, wooden: false, stone: false, iron: false },
+      equipped: 'hand'
+    };
   }
 
   preload() {
@@ -52,7 +61,7 @@ class GameScene extends Phaser.Scene {
     g.generateTexture('tex_stone', TILE, TILE);
     g.clear();
 
-    // Player texture
+    // Player base texture (will be replaced by dynamic one too)
     const pw = 28, ph = 36;
     g.fillStyle(0xffdd66, 1);
     g.fillRect(0, 0, pw, ph);
@@ -128,10 +137,14 @@ class GameScene extends Phaser.Scene {
 
     // Load saved state and world diffs (before spawning pickups)
     this.loadState();
+    // Load appearance settings (colors/glow) early and generate player texture
+    this.loadAppearanceSettings();
+
     this.applyWorldDiff();
 
     // Player
-    this.player = this.physics.add.sprite(100, 100, 'tex_player');
+    this.updatePlayerAppearance();
+    this.player = this.physics.add.sprite(100, 100, 'tex_player_dyn');
     this.player.setBounce(0.06);
     this.player.body.setSize(20, 34).setOffset(4, 2);
 
@@ -145,13 +158,20 @@ class GameScene extends Phaser.Scene {
 
     // Input
     this.cursors = this.input.keyboard.createCursorKeys();
-    this.keys = this.input.keyboard.addKeys({ A: 'A', D: 'D', W: 'W', SPACE: 'SPACE', C: 'C', E: 'E' });
+    this.keys = this.input.keyboard.addKeys({ A: 'A', D: 'D', W: 'W', SPACE: 'SPACE', C: 'C', E: 'E', ONE: 'ONE', TWO: 'TWO', THREE: 'THREE', FOUR: 'FOUR', Q: 'Q' });
     this.input.mouse?.disableContextMenu();
     this.input.on('pointerdown', (pointer) => {
       if (pointer.rightButtonDown()) this.placePlank(pointer);
       else this.attemptMine(pointer);
     });
     this.input.keyboard.on('keydown-C', () => this.craftPlank());
+
+    // Tool selection keys
+    this.input.keyboard.on('keydown-ONE', ()=> this.tryEquipTool('hand'));
+    this.input.keyboard.on('keydown-TWO', ()=> this.tryEquipTool('wooden'));
+    this.input.keyboard.on('keydown-THREE', ()=> this.tryEquipTool('stone'));
+    this.input.keyboard.on('keydown-FOUR', ()=> this.tryEquipTool('iron'));
+    this.input.keyboard.on('keydown-Q', ()=> this.cycleTool());
 
     // Camera/bounds
     const worldW = WORLD_TILES_X * TILE, worldH = WORLD_TILES_Y * TILE;
@@ -171,7 +191,7 @@ class GameScene extends Phaser.Scene {
     this.add.text(14,14,
       'Ohjeet:\nVasen/Oikea tai A/D = liiku  |  Ylös/Space = hyppy' +
       '\nVasen klikkaus = mainaa (myös alaspäin)  |  Oikea klikkaus = aseta lankku' +
-      '\nC = craftaa 3 puusta 1 lankku  |  E = kauppias' +
+      '\nC = craftaa 3 puusta 1 lankku  |  E = kauppias  |  1-4/Q = työkalut' +
       '\nPunainen timantti -> Lento  |  Varo lintuja ja limoja!',
       { fontFamily:'monospace', fontSize:'14px', color:'#fff' })
       .setScrollFactor(0).setDepth(1000).setShadow(2,2,'#000',3);
@@ -241,6 +261,13 @@ class GameScene extends Phaser.Scene {
     if (dx*dx + dy*dy > 120*120) return; // reach limit
 
     const type = sprite.getData('type');
+
+    // Tool gating: require a pickaxe for stone
+    if (type === 'stone') {
+      const allowed = this.tools.equipped === 'wooden' || this.tools.equipped === 'stone' || this.tools.equipped === 'iron';
+      if (!allowed) { this.showToast('Tarvitset hakun! (2: puuhakku)'); return; }
+    }
+
     if (type === 'trunk') this.dropWood(sprite.x, sprite.y);
     else if (type === 'ground') { if (Math.random() < 0.30) this.dropCoin(sprite.x, sprite.y); }
     else if (type === 'stone') { if (Math.random() < 0.85) this.dropStone(sprite.x, sprite.y); }
@@ -348,7 +375,9 @@ class GameScene extends Phaser.Scene {
     slots[2].textContent = `Kivi: ${this.inv.stone}`;
     slots[3].textContent = `Kolikot: ${this.state.coins}`;
     slots[4].textContent = this.state.canFly ? 'Lento ✓' : '';
-    // slots[5] left empty for future
+    // Show equipped tool
+    const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku' };
+    slots[5].textContent = `Työkalu: ${toolNames[this.tools.equipped]}`;
   }
 
   // --- World building helpers ---
@@ -542,7 +571,7 @@ class GameScene extends Phaser.Scene {
   }
 
   saveState(){
-    const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, inv: this.inv, worldDiff: this.worldDiff };
+    const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit };
     try { localStorage.setItem('UAG_save', JSON.stringify(data)); } catch(e) {}
   }
 
@@ -563,7 +592,99 @@ class GameScene extends Phaser.Scene {
         if (Array.isArray(d.worldDiff.removed)) this.worldDiff.removed = d.worldDiff.removed.slice(0, 5000);
         if (Array.isArray(d.worldDiff.placed)) this.worldDiff.placed = d.worldDiff.placed.slice(0, 5000);
       }
+      if (d.tools) this.tools = d.tools;
+      if (d.outfit) this.custom.outfit = d.outfit;
     } catch(e) {}
+  }
+
+  // Appearance settings load from UAG_settings
+  loadAppearanceSettings(){
+    try {
+      const raw = localStorage.getItem('UAG_settings');
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (s.shirtColor) this.custom.shirtColor = s.shirtColor;
+      if (s.pantsColor) this.custom.pantsColor = s.pantsColor;
+      if (typeof s.eyesGlow === 'boolean') this.custom.eyesGlow = s.eyesGlow;
+    } catch(e) {}
+  }
+
+  // Update/generate dynamic player texture based on customization
+  updatePlayerAppearance(){
+    const pw = 28, ph = 36;
+    const g = this.add.graphics();
+    const hexToNum = (hex)=> {
+      if (typeof hex === 'number') return hex;
+      if (!hex || typeof hex !== 'string') return 0xffffff;
+      return parseInt(hex.replace('#',''), 16);
+    };
+
+    // Clear old texture
+    if (this.textures.exists('tex_player_dyn')) this.textures.remove('tex_player_dyn');
+
+    // Backpack (for special suit) - draw first (behind)
+    if (this.custom.outfit === 'special') {
+      g.fillStyle(0x3a3a3a, 1);
+      g.fillRoundedRect(2, 6, 8, 16, 3);
+      // straps
+      g.fillStyle(0x2a2a2a, 1);
+      g.fillRect(9, 8, 3, 12);
+      g.fillRect(16, 8, 3, 12);
+    }
+
+    // Body outline
+    g.lineStyle(2, 0x996633, 1);
+    g.strokeRect(0, 0, pw, ph);
+
+    // Head (skin)
+    g.fillStyle(0xffdd66, 1);
+    g.fillRect(4, 2, pw-8, 10);
+
+    // Eyes
+    const eyeGlow = this.custom.eyesGlow ? 0xffffaa : 0xffffff;
+    g.fillStyle(eyeGlow, 1); g.fillCircle(10, 7, 2); g.fillCircle(18, 7, 2);
+    g.fillStyle(0x000000, 1); g.fillCircle(10, 7, 1); g.fillCircle(18, 7, 1);
+
+    // Shirt
+    g.fillStyle(hexToNum(this.custom.shirtColor), 1);
+    g.fillRect(3, 12, pw-6, 12);
+
+    // Pants
+    g.fillStyle(hexToNum(this.custom.pantsColor), 1);
+    g.fillRect(4, 24, pw-8, 10);
+
+    // Outfit overlays
+    if (this.custom.outfit === 'normal') {
+      // add a belt/trim
+      g.fillStyle(0xffffff, 0.8);
+      g.fillRect(3, 20, pw-6, 2);
+    } else if (this.custom.outfit === 'special') {
+      // special suit accents
+      g.fillStyle(0x55e0ff, 0.8);
+      g.fillRect(3, 14, pw-6, 2);
+      g.fillRect(3, 22, pw-6, 2);
+      // small backpack top cap already drawn
+    }
+
+    g.generateTexture('tex_player_dyn', pw, ph);
+    g.destroy();
+
+    if (this.player) this.player.setTexture('tex_player_dyn');
+  }
+
+  // Tool helpers
+  tryEquipTool(tool){
+    if (!this.tools.owned[tool]) { this.showToast('Ei ostettu'); return; }
+    this.tools.equipped = tool; this.updateInventoryUI(); this.saveState();
+  }
+  cycleTool(){
+    const order = ['hand','wooden','stone','iron'];
+    let idx = order.indexOf(this.tools.equipped);
+    for (let i=1;i<=order.length;i++){
+      const next = order[(idx+i)%order.length];
+      if (this.tools.owned[next]) { this.tools.equipped = next; break; }
+    }
+    this.updateInventoryUI(); this.saveState();
   }
 
   // Small deterministic RNG for reproducible world
@@ -608,6 +729,35 @@ window.addEventListener('load', () => {
       document.getElementById('sfxCoin')?.play().catch(()=>{});
     }
   });
+  // Outfit purchases
+  document.getElementById('buyOutfitNormal')?.addEventListener('click', () => {
+    const s = window.gameScene; if (!s) return;
+    if (s.state.coins >= 3) {
+      s.state.coins -= 3; s.custom.outfit = 'normal'; s.updatePlayerAppearance(); s.updateUI(); s.saveState();
+      document.getElementById('sfxCoin')?.play().catch(()=>{});
+    }
+  });
+  document.getElementById('buyOutfitSpecial')?.addEventListener('click', () => {
+    const s = window.gameScene; if (!s) return;
+    if (s.state.coins >= 7) {
+      s.state.coins -= 7; s.custom.outfit = 'special'; s.updatePlayerAppearance(); s.updateUI(); s.saveState();
+      document.getElementById('sfxCoin')?.play().catch(()=>{});
+    }
+  });
+  // Tool purchases
+  document.getElementById('buyPickWood')?.addEventListener('click', () => {
+    const s = window.gameScene; if (!s) return;
+    if (s.state.coins >= 2) { s.state.coins -= 2; s.tools.owned.wooden = true; s.updateUI(); s.saveState(); document.getElementById('sfxCoin')?.play().catch(()=>{}); }
+  });
+  document.getElementById('buyPickStone')?.addEventListener('click', () => {
+    const s = window.gameScene; if (!s) return;
+    if (s.state.coins >= 4) { s.state.coins -= 4; s.tools.owned.stone = true; s.updateUI(); s.saveState(); document.getElementById('sfxCoin')?.play().catch(()=>{}); }
+  });
+  document.getElementById('buyPickIron')?.addEventListener('click', () => {
+    const s = window.gameScene; if (!s) return;
+    if (s.state.coins >= 6) { s.state.coins -= 6; s.tools.owned.iron = true; s.updateUI(); s.saveState(); document.getElementById('sfxCoin')?.play().catch(()=>{}); }
+  });
+
   document.getElementById('closeMerchant')?.addEventListener('click', () => window.gameScene?.closeMerchant());
 
   // Settings: volumes and toggles
@@ -615,16 +765,26 @@ window.addEventListener('load', () => {
   const sfxVol = document.getElementById('sfxVol');
   const showHearts = document.getElementById('showHearts');
   const toggleFly = document.getElementById('toggleFly');
+  const shirtColor = document.getElementById('shirtColor');
+  const pantsColor = document.getElementById('pantsColor');
+  const eyesGlow = document.getElementById('eyesGlow');
 
   function applySettings(){
     const m = document.getElementById('bgm');
     const sfxEls = ['sfxJump','sfxPlace','sfxPickup','sfxCoin'].map(id=>document.getElementById(id));
     if (m && musicVol) m.volume = Number(musicVol.value);
     if (sfxVol) sfxEls.forEach(e=>{ if (e) e.volume = Number(sfxVol.value); });
-    const settings = { musicVol: Number(musicVol?.value||0.5), sfxVol: Number(sfxVol?.value||0.8), showHearts: !!showHearts?.checked, toggleFly: !!toggleFly?.checked };
+    const settings = { musicVol: Number(musicVol?.value||0.5), sfxVol: Number(sfxVol?.value||0.8), showHearts: !!showHearts?.checked, toggleFly: !!toggleFly?.checked, shirtColor: shirtColor?.value, pantsColor: pantsColor?.value, eyesGlow: !!eyesGlow?.checked };
     try { localStorage.setItem('UAG_settings', JSON.stringify(settings)); } catch(e) {}
     if (window.gameScene && toggleFly) { window.gameScene.state.canFly = !!toggleFly.checked; window.gameScene.saveState(); window.gameScene.updateInventoryUI(); }
     if (showHearts) { const h=document.getElementById('health'); if (h) h.style.display = showHearts.checked ? '' : 'none'; }
+    // Apply appearance to player in-game
+    if (window.gameScene) {
+      window.gameScene.custom.shirtColor = shirtColor?.value || window.gameScene.custom.shirtColor;
+      window.gameScene.custom.pantsColor = pantsColor?.value || window.gameScene.custom.pantsColor;
+      window.gameScene.custom.eyesGlow = !!eyesGlow?.checked;
+      window.gameScene.updatePlayerAppearance();
+    }
   }
 
   // Load settings
@@ -636,6 +796,9 @@ window.addEventListener('load', () => {
       if (sfxVol && typeof s.sfxVol === 'number') sfxVol.value = s.sfxVol;
       if (showHearts && typeof s.showHearts === 'boolean') showHearts.checked = s.showHearts;
       if (toggleFly && typeof s.toggleFly === 'boolean') toggleFly.checked = s.toggleFly;
+      if (shirtColor && typeof s.shirtColor === 'string') shirtColor.value = s.shirtColor;
+      if (pantsColor && typeof s.pantsColor === 'string') pantsColor.value = s.pantsColor;
+      if (eyesGlow && typeof s.eyesGlow === 'boolean') eyesGlow.checked = s.eyesGlow;
     }
   } catch(e) {}
 
@@ -643,6 +806,9 @@ window.addEventListener('load', () => {
   sfxVol?.addEventListener('input', applySettings);
   showHearts?.addEventListener('change', applySettings);
   toggleFly?.addEventListener('change', applySettings);
+  shirtColor?.addEventListener('input', applySettings);
+  pantsColor?.addEventListener('input', applySettings);
+  eyesGlow?.addEventListener('change', applySettings);
 
   // Initial apply and try start bgm
   applySettings();

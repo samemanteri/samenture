@@ -129,7 +129,7 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  font-size: 14px; /* slightly smaller to fit text */
+  font-size: 12px; /* slightly smaller to fit text and tool name */
   color: #fff;
 }
 
@@ -161,6 +161,7 @@ body {
   text-align: center;
   border: 2px solid #888;
   border-radius: 10px;
+  max-width: 320px;
 }
 
 .merchant-box h3 {
@@ -172,7 +173,7 @@ body {
   background: #5c6bc0;
   color: white;
   border: none;
-  padding: 10px 15px;
+  padding: 8px 12px;
   border-radius: 5px;
   cursor: pointer;
   margin: 5px;
