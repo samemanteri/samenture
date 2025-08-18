@@ -1,0 +1,183 @@
+* { box-sizing: border-box; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
+body {
+  margin: 0;
+  align-items: center;
+  min-height: 100vh;
+  background-color: #333;
+  color: #fff;
+}
+
+#canvasWrapper {
+  position: relative;
+  width: 900px;
+  height: 500px;
+  border: 2px solid #000;
+  box-shadow: 0 0 20px rgba(0,0,0,0.5);
+  overflow: hidden; /* Varmistaa, että overlayt pysyvät sisällä */
+}
+
+#gameContainer, #canvasOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#gameContainer canvas {
+  display: block; /* Varmistaa, ettei canvas-elementillä ole ylimääräistä tilaa */
+}
+
+#canvasOverlay {
+  position:absolute;
+  left:0;
+  top:0;
+  width:100%;
+  height:100%;
+  pointer-events:none;
+  overflow:hidden;
+  border-radius:4px;
+  background: radial-gradient(ellipse at center, rgba(0,0,0,0) 50%, rgba(0,0,0,0.7) 100%);
+  pointer-events: none; /* Sallii klikkaukset läpi overlayn */
+}
+
+/* Clouds: moving subtle gradient layers */
+#clouds {
+  position:absolute; left:-10%; top:0; width:120%; height:60%;
+  background-image: radial-gradient(rgba(255,255,255,0.22) 10%, rgba(255,255,255,0) 60%),
+                    radial-gradient(rgba(255,255,255,0.18) 8%, rgba(255,255,255,0) 60%);
+  background-size: 600px 200px, 900px 300px;
+  background-position: 0 20px, 0 80px;
+  filter: blur(8px) saturate(90%);
+  animation: cloud-pan 60s linear infinite;
+  opacity: 0.9;
+}
+@keyframes cloud-pan {
+  from { background-position: 0 20px, 0 80px; }
+  to { background-position: -1200px 20px, -1800px 80px; }
+}
+
+/* Vignette for cinematic look */
+#vignette {
+  position:absolute; left:0; top:0; width:100%; height:100%;
+  background: radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(0,0,0,0.25) 100%);
+  pointer-events:none;
+}
+
+/* Game title overlay */
+#gameTitle { position: absolute; left: 14px; top: 8px; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.6); font-weight:700; font-size:18px; pointer-events:none; }
+
+/* Basic styles for UI elements, adapted for Phaser */
+#ui {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none; /* UI-elementit eivät estä pelin klikkauksia */
+}
+
+#ui > * {
+  pointer-events: all; /* Mutta niiden lapset voivat vastaanottaa klikkauksia */
+  background: rgba(0,0,0,0.5);
+  padding: 8px 12px;
+  border-radius: 5px;
+  font-size: 16px;
+}
+
+#health { background: rgba(0,0,0,0.45); color: #fff; padding:6px 10px; border-radius:8px; backdrop-filter: blur(4px); }
+#coins { background: rgba(0,0,0,0.45); color: #fff; padding:6px 10px; border-radius:8px; backdrop-filter: blur(4px); }
+#settingsBtn {
+  background: rgba(0,0,0,0.45);
+  color: #fff;
+  border-radius:8px;
+  padding:6px 10px;
+  cursor: pointer;
+}
+
+#settingsMenu {
+  position: absolute;
+  top: 50px;
+  right: 10px;
+  background: rgba(0,0,0,0.8);
+  padding: 15px;
+  border-radius: 5px;
+  border: 1px solid #555;
+  z-index: 100;
+}
+
+/* Inventory styles */
+#inventory {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 5px;
+  background: rgba(0,0,0,0.5);
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.slot {
+  width: 40px;
+  height: 40px;
+  border: 2px solid #888;
+  border-radius: 5px;
+  background: #444;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 18px;
+  color: #fff;
+}
+
+.slot:hover {
+  border-color: #fff;
+}
+
+/* Merchant window styles */
+#merchant {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: rgba(0,0,0,0.7);
+  z-index: 200;
+}
+
+.merchant-box {
+  background: rgba(255,255,255,0.95);
+  padding: 12px;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+  text-align: center;
+  border: 2px solid #888;
+  border-radius: 10px;
+}
+
+.merchant-box h3 {
+  margin: 0;
+  color: #ffc107;
+}
+
+.merchant-box button {
+  background: #5c6bc0;
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 5px;
+  cursor: pointer;
+  margin: 5px;
+}
+
+.merchant-box button:hover {
+  background: #7986cb;
+}
+
+.hidden {
+  display: none;
+}

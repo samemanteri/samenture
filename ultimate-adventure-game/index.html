@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ultimate Adventure Game - Phaser Edition</title>
+<link rel="stylesheet" href="style.css">
+<!-- Lisätään Phaser-kirjasto CDN:stä -->
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+</head>
+<body>
+<div id="canvasWrapper">
+  <!-- Phaser luo canvas-elementin tähän diviin -->
+  <div id="gameContainer"></div>
+  <!-- Overlay-kerrokset: vignette ja animoidut pilvet -->
+  <div id="canvasOverlay">
+    <div id="clouds" aria-hidden="true"></div>
+    <div id="vignette" aria-hidden="true"></div>
+  </div>
+</div>
+<div id="ui">
+  <div id="health">Elämät: 4</div>
+  <div id="coins">Kolikot: 0</div>
+  <div id="settingsBtn">⚙️</div>
+</div>
+
+<div id="settingsMenu" class="hidden">
+  <label><input type="checkbox" id="toggleFly"> Salli lentäminen</label><br>
+  <label><input type="checkbox" id="showHearts" checked> Näytä sydämet</label><br>
+  <label>Musiikki: <input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.5"></label><br>
+  <label>SFX: <input type="range" id="sfxVol" min="0" max="1" step="0.05" value="0.8"></label>
+</div>
+
+<div id="inventory">
+  <!-- 6 slotin inventaario -->
+  <div class="slot" data-index="0"></div>
+  <div class="slot" data-index="1"></div>
+  <div class="slot" data-index="2"></div>
+  <div class="slot" data-index="3"></div>
+  <div class="slot" data-index="4"></div>
+  <div class="slot" data-index="5"></div>
+</div>
+
+<!-- Simppeli kauppias-ikkuna -->
+<div id="merchant" class="hidden">
+  <div class="merchant-box">
+    <h3>Kauppias</h3>
+    <div>30 puublokkia &mdash; 5 kolikkoa</div>
+    <button id="buyWood">Osta</button>
+    <button id="closeMerchant">Sulje</button>
+  </div>
+</div>
+
+<!-- Taustamusiikki (voit korvata src-polun omalla tiedostolla) -->
+<audio id="bgm" src="assets/ambient.mp3" loop preload="auto"></audio>
+<!-- Sound effects (placeholder files, korvaa omilla tiedostoilla assets-kansioon) -->
+<audio id="sfxJump" src="assets/jump.wav" preload="auto"></audio>
+<audio id="sfxPlace" src="assets/place.wav" preload="auto"></audio>
+<audio id="sfxPickup" src="assets/pickup.wav" preload="auto"></audio>
+<audio id="sfxCoin" src="assets/coin.wav" preload="auto"></audio>
+
+<script src="game.js"></script>
+</body>
+</html>
