@@ -1,11 +1,10 @@
 // Ultimate Adventure Game - Phaser Edition (no external assets)
 
 // Config
-const VIEW_W = 900;
-const VIEW_H = 500;
 const TILE = 40;
-const WORLD_TILES_X = 120; // ~4800 px wide
-const WORLD_TILES_Y = 20;  // ~800 px tall
+const WORLD_TILES_X = 160; // wider world
+const WORLD_TILES_Y = 40;  // deeper world to allow digging down
+const SURFACE_Y = 20;      // surface level (y-index)
 
 class GameScene extends Phaser.Scene {
   constructor() {
@@ -17,7 +16,8 @@ class GameScene extends Phaser.Scene {
     this.pickups = null;   // coins/diamonds
     this.blocks = null; // colliding block sprites mapped by tile key
     this.decor = null;  // non-colliding visuals (leaves)
-    this.birds = null;  // enemies
+    this.birds = null;  // enemies (air)
+    this.slimes = null; // enemies (ground)
     this.items = null;  // physics items to pick up
     this.invulnUntil = 0;
 
@@ -27,18 +27,29 @@ class GameScene extends Phaser.Scene {
     // Core state
     this.state = { health: 4, coins: 0, canFly: false };
     this.nearMerchant = false;
+
+    // World persistence diff
+    this.worldDiff = { removed: [], placed: [] }; // removed: ["tx,ty"], placed: [{tx,ty,type,textureKey}]
   }
 
   preload() {
     // Generate simple textures at runtime so the game works without any files
     const g = this.add.graphics();
 
-    // Ground tile
+    // Ground tile (dirt)
     g.fillStyle(0x8B5A2B, 1);
     g.fillRect(0, 0, TILE, TILE);
     g.lineStyle(2, 0x6b3a1b, 1);
     g.strokeRect(0, 0, TILE, TILE);
     g.generateTexture('tex_ground', TILE, TILE);
+    g.clear();
+
+    // Stone tile
+    g.fillStyle(0x7b7b7b, 1);
+    g.fillRect(0, 0, TILE, TILE);
+    g.lineStyle(2, 0x5c5c5c, 1);
+    g.strokeRect(0, 0, TILE, TILE);
+    g.generateTexture('tex_stone', TILE, TILE);
     g.clear();
 
     // Player texture
@@ -50,7 +61,7 @@ class GameScene extends Phaser.Scene {
     g.generateTexture('tex_player', pw, ph);
     g.clear();
 
-    // Diamond/coin pickup
+    // Diamond/coin pickup (blue)
     const d = TILE - 10;
     g.fillStyle(0x00ffff, 1);
     g.beginPath();
@@ -94,6 +105,11 @@ class GameScene extends Phaser.Scene {
     // Bird texture
     const bw=36,bh=20,mid=8; g.fillStyle(0x222222,1); g.beginPath(); g.moveTo(0,bh); g.lineTo(bw,bh-mid); g.lineTo(bw*0.35,0); g.closePath(); g.fillPath(); g.lineStyle(2,0x000000,1); g.strokePath(); g.generateTexture('tex_bird',bw,bh); g.clear();
 
+    // Slime texture
+    const sw=28, sh=20; g.fillStyle(0x44cc55,1); g.fillRoundedRect(0,0,sw,sh,6); g.lineStyle(2,0x2a8c38,1); g.strokeRoundedRect(0,0,sw,sh,6);
+    g.fillStyle(0xffffff,1); g.fillCircle(8,8,3); g.fillCircle(20,8,3); g.fillStyle(0x000000,1); g.fillCircle(8,8,1.5); g.fillCircle(20,8,1.5);
+    g.generateTexture('tex_slime', sw, sh); g.clear();
+
     // Merchant stall
     g.fillStyle(0x9b7653,1); g.fillRect(0,10,30,26); g.lineStyle(2,0x6b4a2b,1); g.strokeRect(0,10,30,26);
     g.fillStyle(0xff5555,1); g.fillRect(0,0,30,12); g.lineStyle(2,0xaa2222,1); g.strokeRect(0,0,30,12);
@@ -104,7 +120,15 @@ class GameScene extends Phaser.Scene {
     this.blocks = new Map();
     this.decor = this.add.group();
 
+    // Static platforms group
+    this.platforms = this.physics.add.staticGroup();
+
+    // Build world first
     this.createWorld();
+
+    // Load saved state and world diffs (before spawning pickups)
+    this.loadState();
+    this.applyWorldDiff();
 
     // Player
     this.player = this.physics.add.sprite(100, 100, 'tex_player');
@@ -112,9 +136,10 @@ class GameScene extends Phaser.Scene {
     this.player.body.setSize(20, 34).setOffset(4, 2);
 
     // Groups and collisions
-    this.platforms && this.physics.add.collider(this.player, this.platforms);
     this.pickups = this.physics.add.group();
     this.items = this.physics.add.group();
+
+    this.physics.add.collider(this.player, this.platforms);
     this.physics.add.overlap(this.player, this.pickups, this.onPickup, null, this);
     this.physics.add.overlap(this.player, this.items, this.onItemPickup, null, this);
 
@@ -134,22 +159,20 @@ class GameScene extends Phaser.Scene {
     this.physics.world.setBounds(0,0,worldW,worldH);
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
 
-    // Gems and birds
+    // Gems and enemies
     this.spawnGems();
     this.spawnBirds();
+    this.spawnSlimes();
 
     // Merchant placement and interaction
     this.createMerchant();
 
-    // Load save
-    this.loadState();
-
     // Instructions
     this.add.text(14,14,
       'Ohjeet:\nVasen/Oikea tai A/D = liiku  |  Ylös/Space = hyppy' +
-      '\nVasen klikkaus = mainaa  |  Oikea klikkaus = aseta lankku' +
+      '\nVasen klikkaus = mainaa (myös alaspäin)  |  Oikea klikkaus = aseta lankku' +
       '\nC = craftaa 3 puusta 1 lankku  |  E = kauppias' +
-      '\nPunainen timantti -> Lento  |  Varo lintuja!',
+      '\nPunainen timantti -> Lento  |  Varo lintuja ja limoja!',
       { fontFamily:'monospace', fontSize:'14px', color:'#fff' })
       .setScrollFactor(0).setDepth(1000).setShadow(2,2,'#000',3);
 
@@ -194,9 +217,19 @@ class GameScene extends Phaser.Scene {
 
     // Interact with merchant
     if (Phaser.Input.Keyboard.JustDown(this.keys.E) && this.nearMerchant) this.openMerchant();
+
+    // Slime AI: simple patrol and hop
+    if (this.slimes) {
+      this.slimes.children.iterate((sl)=>{
+        if (!sl || !sl.body) return;
+        if (sl.body.blocked.left) { sl.setVelocityX(80); sl.setFlipX(false); }
+        else if (sl.body.blocked.right) { sl.setVelocityX(-80); sl.setFlipX(true); }
+        if ((sl.body.blocked.down || sl.body.touching.down) && Math.random()<0.005) sl.setVelocityY(-260);
+      });
+    }
   }
 
-  // Mining logic
+  // Mining logic (supports digging down by clicking lower tiles within reach)
   attemptMine(pointer) {
     const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
     const tx = Math.floor(worldPoint.x / TILE);
@@ -205,17 +238,26 @@ class GameScene extends Phaser.Scene {
     const sprite = this.blocks.get(key);
     if (!sprite) return;
     const dx = sprite.x - this.player.x, dy = sprite.y - this.player.y;
-    if (dx*dx + dy*dy > 110*110) return; // reach limit
+    if (dx*dx + dy*dy > 120*120) return; // reach limit
 
     const type = sprite.getData('type');
     if (type === 'trunk') this.dropWood(sprite.x, sprite.y);
-    else if (type === 'ground') {
-      if (Math.random() < 0.30) this.dropCoin(sprite.x, sprite.y);
-      if (Math.random() < 0.35) this.dropStone(sprite.x, sprite.y);
+    else if (type === 'ground') { if (Math.random() < 0.30) this.dropCoin(sprite.x, sprite.y); }
+    else if (type === 'stone') { if (Math.random() < 0.85) this.dropStone(sprite.x, sprite.y); }
+
+    // Update persistence diff
+    if (type === 'plank') {
+      // remove from placed list
+      this.worldDiff.placed = this.worldDiff.placed.filter(p=>!(p.tx===tx && p.ty===ty));
+    } else {
+      if (!this.worldDiff.removed.includes(key)) this.worldDiff.removed.push(key);
     }
 
     sprite.destroy();
     this.blocks.delete(key);
+    // Also remove static body from platforms group at position
+    // (Phaser staticGroup handles destroy above)
+    this.saveState();
   }
 
   placePlank(pointer) {
@@ -232,8 +274,14 @@ class GameScene extends Phaser.Scene {
     if (Phaser.Geom.Intersects.RectangleToRectangle(newRect, pb)) { this.showToast('Liian lähellä'); return; }
 
     this.addBlock(tx, ty, 'tex_ground', 'plank', true);
-    this.inv.plank -= 1; this.updateInventoryUI(); this.saveState();
+    this.inv.plank -= 1; this.updateInventoryUI();
     document.getElementById('sfxPlace')?.play().catch(()=>{});
+
+    // persist placement
+    this.worldDiff.placed.push({ tx, ty, type:'plank', textureKey:'tex_ground' });
+    // If it was previously removed (same coordinate), clean up
+    this.worldDiff.removed = this.worldDiff.removed.filter(k=>k!==key);
+    this.saveState();
   }
 
   craftPlank() {
@@ -323,32 +371,60 @@ class GameScene extends Phaser.Scene {
   }
 
   createWorld() {
-    // Static platforms group
-    this.platforms = this.physics.add.staticGroup();
+    // Clear in case of restart
+    this.blocks.clear?.();
 
-    // Base floor line
+    // Surface line
     for (let tx = 0; tx < WORLD_TILES_X; tx++) {
-      this.addBlock(tx, WORLD_TILES_Y - 1, 'tex_ground', 'ground', true);
+      this.addBlock(tx, SURFACE_Y, 'tex_ground', 'ground', true);
     }
 
-    // Random floating platforms
+    // Random floating platforms above surface
     const rng = this.makeRandom(1337);
-    for (let i = 0; i < 70; i++) {
+    for (let i = 0; i < 80; i++) {
       const len = 2 + Math.floor(rng() * 6);
       const px = 4 + Math.floor(rng() * (WORLD_TILES_X - len - 8));
-      const py = 6 + Math.floor(rng() * (WORLD_TILES_Y - 8));
+      const py = 6 + Math.floor(rng() * (SURFACE_Y - 8));
       for (let j = 0; j < len; j++) this.addBlock(px + j, py, 'tex_ground', 'ground', true);
     }
 
-    // Trees on the ground
-    for (let i = 0; i < 22; i++) {
+    // Underground fill: stone layers below surface
+    for (let ty = SURFACE_Y+1; ty < WORLD_TILES_Y; ty++) {
+      for (let tx = 0; tx < WORLD_TILES_X; tx++) {
+        const tex = (ty - SURFACE_Y > 2) ? 'tex_stone' : 'tex_ground';
+        const type = (tex === 'tex_stone') ? 'stone' : 'ground';
+        this.addBlock(tx, ty, tex, type, true);
+      }
+    }
+
+    // Trees on the surface
+    for (let i = 0; i < 24; i++) {
       const tx = 3 + Math.floor(Math.random() * (WORLD_TILES_X - 6));
-      const baseTy = WORLD_TILES_Y - 2; // just above base floor
+      const baseTy = SURFACE_Y - 1; // tile above the ground surface
       const height = 3 + Math.floor(Math.random()*3);
       for (let h = 0; h < height; h++) this.addBlock(tx, baseTy - h, 'tex_trunk', 'trunk', true);
       // leaves cluster (non-colliding)
       for (let lx = -2; lx <= 2; lx++) for (let ly = -2; ly <= 0; ly++) {
         if (Math.abs(lx)+Math.abs(ly) <= 3) this.addBlock(tx+lx, baseTy - height + ly, 'tex_leaves', 'leaves', false);
+      }
+    }
+  }
+
+  applyWorldDiff(){
+    // Remove mined blocks
+    if (Array.isArray(this.worldDiff.removed)) {
+      for (const key of this.worldDiff.removed) {
+        const spr = this.blocks.get(key);
+        if (spr) { spr.destroy(); this.blocks.delete(key); }
+      }
+    }
+    // Re-add placed blocks
+    if (Array.isArray(this.worldDiff.placed)) {
+      for (const p of this.worldDiff.placed) {
+        if (typeof p.tx !== 'number' || typeof p.ty !== 'number') continue;
+        const key = `${p.tx},${p.ty}`;
+        if (this.blocks.has(key)) continue;
+        this.addBlock(p.tx, p.ty, p.textureKey || 'tex_ground', p.type || 'plank', true);
       }
     }
   }
@@ -359,6 +435,10 @@ class GameScene extends Phaser.Scene {
     const rng = this.makeRandom(4242);
     let reds = 0;
     for (const b of bodies) {
+      if (!b || !b.getData) continue;
+      // Avoid spawning gems in deep underground
+      const isUnderground = (b.y / TILE) > SURFACE_Y + 4;
+      if (isUnderground) continue;
       if (rng() < 0.10) {
         const isRed = reds < 3 && rng() < 0.12;
         const tex = isRed ? 'tex_red' : 'tex_diamond';
@@ -372,9 +452,9 @@ class GameScene extends Phaser.Scene {
 
   spawnBirds() {
     this.birds = this.physics.add.group({ allowGravity: false });
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 12; i++) {
       const x = 200 + Math.random() * (WORLD_TILES_X*TILE - 400);
-      const y = 80 + Math.random() * 260;
+      const y = 80 + Math.random() * (SURFACE_Y*TILE - 120);
       const bird = this.birds.create(x, y, 'tex_bird');
       bird.setVelocityX((Math.random()<0.5?-1:1) * (120 + Math.random()*120));
       bird.setBounce(1, 0);
@@ -384,7 +464,21 @@ class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.birds, this.onBirdHit, null, this);
   }
 
-  // Remove duplicate onPickup; keep single implementation earlier
+  spawnSlimes(){
+    this.slimes = this.physics.add.group();
+    for (let i=0;i<14;i++){
+      const x = 80 + Math.random() * (WORLD_TILES_X*TILE - 160);
+      const y = (SURFACE_Y-2)*TILE - 20;
+      const s = this.slimes.create(x, y, 'tex_slime');
+      s.setBounce(0.1, 0.0);
+      s.setCollideWorldBounds(true);
+      s.setVelocityX(Math.random()<0.5?-80:80);
+      s.body.setSize(24,16).setOffset(2,4);
+    }
+    this.physics.add.collider(this.slimes, this.platforms);
+    this.physics.add.overlap(this.player, this.slimes, this.onSlimeHit, null, this);
+  }
+
   onBirdHit(player, bird) {
     const now = this.time.now;
     if (now < this.invulnUntil) return;
@@ -393,6 +487,17 @@ class GameScene extends Phaser.Scene {
     const dir = Math.sign(player.x - bird.x) || 1;
     player.setVelocity(260*dir, -240);
     player.setTint(0xff8888);
+    this.time.delayedCall(250, ()=> player.clearTint());
+  }
+
+  onSlimeHit(player, slime){
+    const now = this.time.now;
+    if (now < this.invulnUntil) return;
+    this.invulnUntil = now + 900;
+    this.damage(1);
+    const dir = Math.sign(player.x - slime.x) || 1;
+    player.setVelocity(220*dir, -200);
+    player.setTint(0x88ff88);
     this.time.delayedCall(250, ()=> player.clearTint());
   }
 
@@ -406,7 +511,7 @@ class GameScene extends Phaser.Scene {
 
   // Merchant helpers
   createMerchant(){
-    const tx = 12; const ty = WORLD_TILES_Y - 2;
+    const tx = 12; const ty = SURFACE_Y - 1;
     const x = tx*TILE + TILE/2; const y = ty*TILE + TILE/2 - 10;
     this.add.image(x, y-8, 'tex_merchant').setDepth(5);
     // interaction zone
@@ -437,7 +542,7 @@ class GameScene extends Phaser.Scene {
   }
 
   saveState(){
-    const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, inv: this.inv };
+    const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, inv: this.inv, worldDiff: this.worldDiff };
     try { localStorage.setItem('UAG_save', JSON.stringify(data)); } catch(e) {}
   }
 
@@ -453,6 +558,10 @@ class GameScene extends Phaser.Scene {
         this.inv.wood = d.inv.wood || 0;
         this.inv.plank = d.inv.plank || 0;
         this.inv.stone = d.inv.stone || 0;
+      }
+      if (d.worldDiff) {
+        if (Array.isArray(d.worldDiff.removed)) this.worldDiff.removed = d.worldDiff.removed.slice(0, 5000);
+        if (Array.isArray(d.worldDiff.placed)) this.worldDiff.placed = d.worldDiff.placed.slice(0, 5000);
       }
     } catch(e) {}
   }
@@ -470,13 +579,15 @@ class GameScene extends Phaser.Scene {
 // Phaser config and boot
 const config = {
   type: Phaser.AUTO,
-  width: VIEW_W,
-  height: VIEW_H,
   parent: 'gameContainer',
   backgroundColor: '#5db2ff',
   physics: {
     default: 'arcade',
     arcade: { gravity: { y: 900 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.RESIZE,
+    autoCenter: Phaser.Scale.CENTER_BOTH
   },
   scene: [GameScene]
 };
