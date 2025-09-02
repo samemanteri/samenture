@@ -29,11 +29,14 @@
   <label><input type="checkbox" id="showHearts" checked> Näytä sydämet</label><br>
   <label>Musiikki: <input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.5"></label><br>
   <label>SFX: <input type="range" id="sfxVol" min="0" max="1" step="0.05" value="0.8"></label>
+  <label>Työkalu: <select id="toolSelect"></select></label>
   <hr>
   <strong>Hahmon ulkoasu</strong><br>
   <label>Paita: <input type="color" id="shirtColor" value="#4477ff"></label><br>
   <label>Housut: <input type="color" id="pantsColor" value="#333333"></label><br>
-  <label><input type="checkbox" id="eyesGlow"> Hohtavat silmät</label>
+  <label><input type="checkbox" id="eyesGlow"> Hohtavat silmät</label><br>
+  <label>Silmien väri: <input type="color" id="eyeColor" value="#ffffff"></label><br>
+  <label>Hiusten väri: <input type="color" id="hairColor" value="#222222"></label>
 </div>
 
 <div id="inventory">
@@ -60,6 +63,8 @@
     <button id="buyPickStone">Osta kivihakku</button>
     <div>Rautahakku &mdash; 6 kolikkoa</div>
     <button id="buyPickIron">Osta rautahakku</button>
+    <div>Pistooli &mdash; 10 kolikkoa</div>
+    <button id="buyPistol">Osta pistooli</button>
     <hr>
     <div>Asut</div>
     <div>Tavallinen asu &mdash; 3 kolikkoa</div>
@@ -67,7 +72,7 @@
     <div>Erikoisasu (reppu) &mdash; 7 kolikkoa</div>
     <button id="buyOutfitSpecial">Osta erikoisasu</button>
     <br>
-    <small>Vinkit: 1-4 vaihda työkaluja, Q kierrätä.</small>
+    <small>Vinkit: 1-5 vaihda työkaluja, Q kierrätä.</small>
     <br>
     <button id="closeMerchant">Sulje</button>
   </div>
