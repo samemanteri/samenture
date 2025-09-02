@@ -55,6 +55,9 @@ class GameScene extends Phaser.Scene {
     this.loadedChunks = new Set();
     this.currentChunk = null;
     this.lastCenterChunk = null;
+
+  // Touch/mobile controls state
+  this.touchState = { left:false, right:false, jump:false, placeMode:false };
   }
 
   preload() {
@@ -192,9 +195,16 @@ class GameScene extends Phaser.Scene {
     this.cursors = this.input.keyboard.createCursorKeys();
   this.keys = this.input.keyboard.addKeys({ A: 'A', D: 'D', W: 'W', SPACE: 'SPACE', C: 'C', E: 'E', ONE: 'ONE', TWO: 'TWO', THREE: 'THREE', FOUR: 'FOUR', FIVE: 'FIVE', SIX: 'SIX', SEVEN: 'SEVEN', EIGHT: 'EIGHT', Q: 'Q' });
     this.input.mouse?.disableContextMenu();
+    // Pointer interactions: on desktop left-click mines/shoots, right-click places
+    // On touch, use placeMode toggle to place plank with a tap
     this.input.on('pointerdown', (pointer) => {
-      if (pointer.rightButtonDown()) this.placePlank(pointer);
-      else this.attemptMine(pointer);
+      const isTouch = pointer.pointerType === 'touch';
+      if (!isTouch && pointer.rightButtonDown()) {
+        this.placePlank(pointer);
+      } else {
+        if (isTouch && this.touchState.placeMode) this.placePlank(pointer);
+        else this.attemptMine(pointer);
+      }
     });
     this.input.keyboard.on('keydown-C', () => this.craftPlank());
 
@@ -242,6 +252,9 @@ class GameScene extends Phaser.Scene {
 
     // Ensure chunks around the player now that player exists
     this.ensureChunksAround(this.player.x);
+
+  // Hook up mobile/touch controls from DOM
+  this.setupTouchControls();
   }
 
   update() {
@@ -254,9 +267,9 @@ class GameScene extends Phaser.Scene {
 
     const onGround = this.player.body.blocked.down || this.player.body.touching.down;
 
-    const left = this.cursors.left.isDown || this.keys.A.isDown;
-    const right = this.cursors.right.isDown || this.keys.D.isDown;
-    const jump = this.cursors.up.isDown || this.keys.W.isDown || this.keys.SPACE.isDown;
+  const left = this.cursors.left.isDown || this.keys.A.isDown || this.touchState.left;
+  const right = this.cursors.right.isDown || this.keys.D.isDown || this.touchState.right;
+  const jump = this.cursors.up.isDown || this.keys.W.isDown || this.keys.SPACE.isDown || this.touchState.jump;
     const speed = 220;
 
     if (left) { this.player.setVelocityX(-speed); this.player.setFlipX(true); }
@@ -264,7 +277,7 @@ class GameScene extends Phaser.Scene {
     else { this.player.setVelocityX(0); }
 
     if (this.state.canFly) {
-      if (jump) this.player.setVelocityY(-280);
+  if (jump) this.player.setVelocityY(-280);
     } else if (jump && onGround) {
       this.player.setVelocityY(-440);
       document.getElementById('sfxJump')?.play().catch(()=>{});
@@ -300,6 +313,49 @@ class GameScene extends Phaser.Scene {
     if (centerChunk !== this.lastCenterChunk) {
       this.lastCenterChunk = centerChunk;
       this.ensureChunksAround(this.player.x);
+    }
+  }
+
+  setupTouchControls(){
+    // DOM buttons
+    const btnLeft = document.getElementById('btnLeft');
+    const btnRight = document.getElementById('btnRight');
+    const btnJump = document.getElementById('btnJump');
+    const btnPlaceToggle = document.getElementById('btnPlaceToggle');
+    const badge = document.getElementById('placeModeBadge');
+
+    const press = (key)=>{ this.touchState[key] = true; };
+    const release = (key)=>{ this.touchState[key] = false; };
+    const bindHold = (el, key)=>{
+      if (!el) return;
+      const onDown = (e)=>{ e.preventDefault(); press(key); };
+      const onUp = (e)=>{ e.preventDefault(); release(key); };
+      el.addEventListener('touchstart', onDown, { passive:false });
+      el.addEventListener('mousedown', onDown);
+      el.addEventListener('touchend', onUp);
+      el.addEventListener('touchcancel', onUp);
+      el.addEventListener('mouseup', onUp);
+      el.addEventListener('mouseleave', onUp);
+    };
+
+    bindHold(btnLeft, 'left');
+    bindHold(btnRight, 'right');
+    bindHold(btnJump, 'jump');
+
+    // Toggle place mode
+    if (btnPlaceToggle) {
+      let lastToggle = 0;
+      const toggle = (e)=>{
+        e.preventDefault();
+        const now = Date.now();
+        if (now - lastToggle < 250) return; // guard against double (touch+click)
+        lastToggle = now;
+        this.touchState.placeMode = !this.touchState.placeMode;
+        btnPlaceToggle.classList.toggle('primary', this.touchState.placeMode);
+        if (badge) badge.style.display = this.touchState.placeMode ? 'block' : 'none';
+      };
+      btnPlaceToggle.addEventListener('click', toggle);
+      btnPlaceToggle.addEventListener('touchend', toggle, { passive:false });
     }
   }
 

@@ -186,3 +186,77 @@ body {
 .hidden {
   display: none;
 }
+
+/* --- Mobiiliohjaimet --- */
+#touchControls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 10px 12px 14px;
+  display: none; /* oletuksena piilossa; näytetään mobiilissa */
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  pointer-events: none; /* estä koko kerroksen blokkaus */
+  z-index: 120; /* nouse canvasin ja inventaarion yläpuolelle */
+}
+
+#touchControls .tc-left,
+#touchControls .tc-right {
+  display: flex;
+  gap: 12px;
+  pointer-events: auto; /* mutta napit ovat klikattavia */
+}
+
+.tc-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.5);
+  background: rgba(0,0,0,0.35);
+  color: #fff;
+  font-size: 22px;
+  box-shadow: 0 6px 14px rgba(0,0,0,0.35);
+  backdrop-filter: blur(4px);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.tc-btn.primary {
+  background: rgba(0,120,255,0.5);
+  border-color: rgba(120,190,255,0.8);
+}
+
+.tc-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 90px;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.45);
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.tc-mode {
+  position: absolute;
+  right: 14px;
+  bottom: 90px;
+  background: rgba(255,193,7,0.9);
+  color: #000;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+  display: none; /* näkyy kun asetus-tila päällä */
+}
+
+/* Näytä ohjaimet pienillä ruuduilla tai kun on kosketuslaite */
+@media (pointer: coarse), (max-width: 900px) {
+  #touchControls { display: flex; }
+  /* tee inventoriosta hieman kompaktimpi mobiilissa */
+  #inventory { bottom: 90px; }
+}
