@@ -96,6 +96,14 @@ body {
   cursor: pointer;
 }
 
+#backpackBtn {
+  background: rgba(0,0,0,0.45);
+  color: #fff;
+  border-radius:8px;
+  padding:6px 10px;
+  cursor: pointer;
+}
+
 #settingsMenu {
   position: absolute;
   top: 50px;
@@ -106,6 +114,18 @@ body {
   border: 1px solid #555;
   z-index: 100;
 }
+
+.merchant-inline button {
+  background: #5c6bc0;
+  color: white;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  margin: 4px 0 8px;
+}
+
+.merchant-inline button:hover { background: #7986cb; }
 
 /* Inventory styles */
 #inventory {
@@ -186,6 +206,72 @@ body {
 .hidden {
   display: none;
 }
+
+/* Start/pause overlays */
+.overlay {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 300;
+}
+.overlay .panel {
+  background: rgba(255,255,255,0.96);
+  color: #222;
+  border: 2px solid #666;
+  border-radius: 12px;
+  padding: 16px 18px;
+  width: min(720px, 92vw);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.35);
+  text-align: center;
+}
+.overlay h1 { margin: 6px 0 8px; color:#3f51b5; font-size: 28px; }
+.overlay h3 { margin: 6px 0 8px; color:#3f51b5; }
+.overlay p { margin: 8px 0 14px; color:#333; }
+.overlay .actions { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+.overlay button { background:#5c6bc0; color:#fff; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; }
+.overlay button:hover { background:#7986cb; }
+
+/* Ensure hidden wins over overlay's display */
+.overlay.hidden { display: none !important; }
+
+/* Backpack panel */
+#backpackPanel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: rgba(0,0,0,0.7);
+  z-index: 210;
+}
+
+#backpackPanel.hidden { display:none; }
+
+.bp-box {
+  background: rgba(255,255,255,0.95);
+  padding: 12px;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+  text-align: center;
+  border: 2px solid #888;
+  border-radius: 10px;
+  width: 320px;
+}
+
+.bp-box h3 { margin: 0 0 8px; color:#ffc107; }
+.bp-slots { display:grid; grid-template-columns: 1fr; gap:8px; margin: 8px 0; }
+.bp-slot { display:flex; justify-content:space-between; align-items:center; background:#f1f1f1; padding:8px 10px; border-radius:8px; color:#333; }
+.bp-actions { display:flex; justify-content:space-between; gap:10px; margin-top:10px; }
+.bp-actions button { background:#5c6bc0; color:#fff; border:none; border-radius:6px; padding:8px 12px; cursor:pointer; }
+.bp-actions button:hover { background:#7986cb; }
 
 /* --- Mobiiliohjaimet --- */
 #touchControls {

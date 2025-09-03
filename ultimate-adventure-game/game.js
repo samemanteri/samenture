@@ -3,8 +3,8 @@
 // Config
 const TILE = 40;
 // Removed fixed WORLD_TILES_X to support endless world
-const WORLD_TILES_Y = 40;  // vertical depth
-const SURFACE_Y = 20;      // surface level (y-index)
+const WORLD_TILES_Y = 60;  // vertical depth (bigger world)
+const SURFACE_Y = 28;      // surface level (y-index)
 // Endless world params
 const CHUNK_W = 32;        // tiles per chunk horizontally
 const LOAD_RADIUS = 3;     // chunks to load around player
@@ -29,6 +29,9 @@ class GameScene extends Phaser.Scene {
     // Simple stackable inventory (shown in DOM slots)
     this.inv = { wood: 0, plank: 0, stone: 0 };
 
+  // Backpack: up to 3 item stacks (each { item: 'wood'|'stone'|..., qty:number })
+  this.backpack = [null, null, null];
+
     // Core state
     this.state = { health: 4, coins: 0, canFly: false };
     this.nearMerchant = false;
@@ -46,7 +49,7 @@ class GameScene extends Phaser.Scene {
 
     // Tool system
     this.tools = {
-      owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, minigun: true, knife: true, sniper: true },
+      owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, minigun: true, knife: true, sniper: true, hook: true },
       equipped: 'pistol'
     };
 
@@ -58,6 +61,17 @@ class GameScene extends Phaser.Scene {
 
   // Touch/mobile controls state
   this.touchState = { left:false, right:false, jump:false, placeMode:false };
+
+  // Cactus hazard bookkeeping
+  this.cactusTiles = new Set(); // keys of tiles with cactus
+  this._nextCactusHurtAt = 0;
+
+  // Grappling hook state
+  this.hook = { active: false, anchor: null };
+
+  // Pause state
+  this.isPaused = false;
+  this.started = false;
   }
 
   preload() {
@@ -80,13 +94,28 @@ class GameScene extends Phaser.Scene {
     g.generateTexture('tex_stone', TILE, TILE);
     g.clear();
 
-    // Player base texture (keep plain, no border)
-    const pw = 28, ph = 36;
-    g.fillStyle(0xffdd66, 1);
-    g.fillRect(0, 0, pw, ph);
-    // removed outline to avoid black border
-    g.generateTexture('tex_player', pw, ph);
-    g.clear();
+  // Sand tile (aavikko)
+  g.fillStyle(0xE2C572, 1); // warm sand
+  g.fillRect(0, 0, TILE, TILE);
+  g.lineStyle(2, 0xC9AE5F, 1);
+  g.strokeRect(0, 0, TILE, TILE);
+  g.generateTexture('tex_sand', TILE, TILE);
+  g.clear();
+
+  // Sandstone tile (deeper desert)
+  g.fillStyle(0xCFA35B, 1);
+  g.fillRect(0, 0, TILE, TILE);
+  g.lineStyle(2, 0xA27E44, 1);
+  g.generateTexture('tex_sandstone', TILE, TILE);
+  g.clear();
+
+  // Player base texture (keep plain, no border)
+  const pw = 28, ph = 36;
+  g.fillStyle(0xffdd66, 1);
+  g.fillRect(0, 0, pw, ph);
+  // removed outline to avoid black border
+  g.generateTexture('tex_player', pw, ph);
+  g.clear();
 
     // Diamond/coin pickup (blue)
     const d = TILE - 10;
@@ -137,6 +166,17 @@ class GameScene extends Phaser.Scene {
     g.fillStyle(0xffffff,1); g.fillCircle(8,8,3); g.fillCircle(20,8,3); g.fillStyle(0x000000,1); g.fillCircle(8,8,1.5); g.fillCircle(20,8,1.5);
     g.generateTexture('tex_slime', sw, sh); g.clear();
 
+  // Cactus tile (one segment, stacks vertically)
+  g.fillStyle(0x2FA05A, 1);
+  g.fillRoundedRect(8, 2, TILE-16, TILE-4, 6);
+  // thorns
+  g.fillStyle(0x1e6b3b, 1);
+  for (let i=0;i<4;i++){ g.fillRect(6, 6+i*8, 4, 2); g.fillRect(TILE-10, 10+i*8, 4, 2); }
+  g.lineStyle(2, 0x175534, 1);
+  g.strokeRoundedRect(8, 2, TILE-16, TILE-4, 6);
+  g.generateTexture('tex_cactus', TILE, TILE);
+  g.clear();
+
     // Merchant stall
     g.fillStyle(0x9b7653,1); g.fillRect(0,10,30,26); g.lineStyle(2,0x6b4a2b,1); g.strokeRect(0,10,30,26);
     g.fillStyle(0xff5555,1); g.fillRect(0,0,30,12); g.lineStyle(2,0xaa2222,1); g.strokeRect(0,0,30,12);
@@ -149,6 +189,10 @@ class GameScene extends Phaser.Scene {
     // Bullet texture
     g.fillStyle(0x333333,1); g.fillRect(0,0,8,4); g.lineStyle(1,0x000000,1); g.strokeRect(0,0,8,4);
     g.generateTexture('tex_bullet',8,4); g.clear();
+
+  // Hook head texture
+  g.fillStyle(0xffffff,1); g.fillCircle(6,6,6); g.lineStyle(2,0x444444,1); g.strokeCircle(6,6,6);
+  g.generateTexture('tex_hook',12,12); g.clear();
   }
 
   create() {
@@ -169,6 +213,9 @@ class GameScene extends Phaser.Scene {
     this.slimes = this.physics.add.group();
     this.bullets = this.physics.add.group({ allowGravity: false });
     this.waters = this.add.group();
+
+  // Rope graphics
+  this.hookGfx = this.add.graphics();
 
     // Initialize endless world (generate starting chunks around x=0)
     this.initInfiniteWorld();
@@ -198,6 +245,7 @@ class GameScene extends Phaser.Scene {
     // Pointer interactions: on desktop left-click mines/shoots, right-click places
     // On touch, use placeMode toggle to place plank with a tap
     this.input.on('pointerdown', (pointer) => {
+      if (!this.started || this.isPaused) return;
       const isTouch = pointer.pointerType === 'touch';
       if (!isTouch && pointer.rightButtonDown()) {
         this.placePlank(pointer);
@@ -206,18 +254,30 @@ class GameScene extends Phaser.Scene {
         else this.attemptMine(pointer);
       }
     });
-    this.input.keyboard.on('keydown-C', () => this.craftPlank());
+  this.input.keyboard.on('keydown-C', () => { if (this.started && !this.isPaused) this.craftPlank(); });
+    // Open backpack with E too; if near merchant, E opens merchant as before
+    this.input.keyboard.on('keydown-E', () => {
+      if (!this.nearMerchant) this.toggleBackpack();
+    });
 
     // Tool selection keys
-    this.input.keyboard.on('keydown-ONE', ()=> this.tryEquipTool('hand'));
-    this.input.keyboard.on('keydown-TWO', ()=> this.tryEquipTool('wooden'));
-    this.input.keyboard.on('keydown-THREE', ()=> this.tryEquipTool('stone'));
-  this.input.keyboard.on('keydown-FOUR', ()=> this.tryEquipTool('iron'));
-  this.input.keyboard.on('keydown-FIVE', ()=> this.tryEquipTool('pistol'));
-  this.input.keyboard.on('keydown-SIX', ()=> this.tryEquipTool('minigun'));
-  this.input.keyboard.on('keydown-SEVEN', ()=> this.tryEquipTool('knife'));
-  this.input.keyboard.on('keydown-EIGHT', ()=> this.tryEquipTool('sniper'));
-    this.input.keyboard.on('keydown-Q', ()=> this.cycleTool());
+    const guard = (fn)=>()=>{ if (this.started && !this.isPaused) fn(); };
+    this.input.keyboard.on('keydown-ONE', guard(()=> this.tryEquipTool('hand')));
+    this.input.keyboard.on('keydown-TWO', guard(()=> this.tryEquipTool('wooden')));
+    this.input.keyboard.on('keydown-THREE', guard(()=> this.tryEquipTool('stone')));
+    this.input.keyboard.on('keydown-FOUR', guard(()=> this.tryEquipTool('iron')));
+    this.input.keyboard.on('keydown-FIVE', guard(()=> this.tryEquipTool('pistol')));
+    this.input.keyboard.on('keydown-SIX', guard(()=> this.tryEquipTool('minigun')));
+    this.input.keyboard.on('keydown-SEVEN', guard(()=> this.tryEquipTool('knife')));
+    this.input.keyboard.on('keydown-EIGHT', guard(()=> this.tryEquipTool('sniper')));
+    this.input.keyboard.on('keydown-NINE', guard(()=> this.tryEquipTool('hook')));
+    this.input.keyboard.on('keydown-Q', guard(()=> this.cycleTool()));
+
+    // Pause toggle (Esc)
+    this.input.keyboard.on('keydown-ESC', ()=>{
+      if (!this.started) return;
+      if (this.isPaused) this.resumeGame(); else this.pauseGame();
+    });
 
     // Camera/bounds (endless)
     const worldH = WORLD_TILES_Y * TILE;
@@ -230,9 +290,9 @@ class GameScene extends Phaser.Scene {
 
     // Instructions
     this.add.text(14,14,
-      'Ohjeet:\nVasen/Oikea tai A/D = liiku  |  Ylös/Space = hyppy' +
-      '\nVasen klikkaus = mainaa (myös alaspäin) tai ammu (pistoolilla)  |  Oikea klikkaus = aseta lankku' +
-  '\nC = craftaa 3 puusta 1 lankku  |  E = kauppias  |  1-8/Q = työkalut' +
+    'Ohjeet:\nVasen/Oikea tai A/D = liiku  |  Ylös/Space = hyppy' +
+    '\nVasen klikkaus = mainaa (myös alaspäin) tai ammu (pistoolilla)  |  Oikea klikkaus = aseta lankku' +
+  '\nC = craftaa 3 puusta 1 lankku  |  E = kauppias  |  1-9/Q = työkalut' +
       '\nPunainen timantti -> Lento  |  Vesi: uida ylös/alas Ylöksellä/Space' +
       '\nVaro lintuja ja limoja!',
       { fontFamily:'monospace', fontSize:'14px', color:'#fff' })
@@ -242,7 +302,7 @@ class GameScene extends Phaser.Scene {
     const toggleFly = document.getElementById('toggleFly');
     if (toggleFly) toggleFly.checked = !!this.state.canFly;
 
-    this.updateUI();
+  this.updateUI();
 
     // Expose scene for UI handlers
     window.gameScene = this;
@@ -255,9 +315,20 @@ class GameScene extends Phaser.Scene {
 
   // Hook up mobile/touch controls from DOM
   this.setupTouchControls();
+
+    // Start/pause UI buttons
+    document.getElementById('btnStart')?.addEventListener('click', ()=> this.startGame());
+    document.getElementById('btnStartSettings')?.addEventListener('click', ()=> document.getElementById('settingsMenu')?.classList.toggle('hidden'));
+    document.getElementById('btnResume')?.addEventListener('click', ()=> this.resumeGame());
+    document.getElementById('btnRestart')?.addEventListener('click', ()=> this.restartGame());
+    document.getElementById('btnPauseSettings')?.addEventListener('click', ()=> document.getElementById('settingsMenu')?.classList.toggle('hidden'));
+
+    // Initially paused until started
+    this.pauseGame(true);
   }
 
   update() {
+  if (!this.started || this.isPaused) { this.hookGfx?.clear(); return; }
     // Reset merchant hint each frame, will be re-enabled by overlap
     this.nearMerchant = false;
     if (this.merchantPrompt) this.merchantPrompt.setVisible(false);
@@ -280,7 +351,6 @@ class GameScene extends Phaser.Scene {
   if (jump) this.player.setVelocityY(-280);
     } else if (jump && onGround) {
       this.player.setVelocityY(-440);
-      document.getElementById('sfxJump')?.play().catch(()=>{});
       this.player.setScale(1.05,0.95); this.time.delayedCall(120,()=>this.player.setScale(1,1));
     }
 
@@ -289,7 +359,7 @@ class GameScene extends Phaser.Scene {
     if (this.player.y > worldH+200) { this.player.setPosition(this.player.x, 100); this.player.setVelocity(0,0); this.damage(1); }
 
     // Interact with merchant
-    if (Phaser.Input.Keyboard.JustDown(this.keys.E) && this.nearMerchant) this.openMerchant();
+  if (Phaser.Input.Keyboard.JustDown(this.keys.E) && this.nearMerchant) this.openMerchant();
 
     // Handle gravity
     if (this.inWater) {
@@ -314,6 +384,84 @@ class GameScene extends Phaser.Scene {
       this.lastCenterChunk = centerChunk;
       this.ensureChunksAround(this.player.x);
     }
+
+    // Cactus contact damage (tick at most twice per second)
+    if (this.time.now >= this._nextCactusHurtAt) {
+      const hurt = this.isTouchingCactus();
+      if (hurt) {
+        this.damage(1);
+        this._nextCactusHurtAt = this.time.now + 600; // cooldown
+      }
+    }
+
+    // Grapple pull update and rope rendering
+    this.hookGfx.clear();
+    if (this.hook.active && this.hook.anchor) {
+      // Draw rope
+      this.hookGfx.lineStyle(2, 0xffffff, 0.8);
+      this.hookGfx.beginPath();
+      this.hookGfx.moveTo(this.player.x, this.player.y);
+      this.hookGfx.lineTo(this.hook.anchor.x, this.hook.anchor.y);
+      this.hookGfx.strokePath();
+
+      // Pull towards anchor
+      const ax = this.hook.anchor.x, ay = this.hook.anchor.y;
+      const dx = ax - this.player.x, dy = ay - this.player.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 18) {
+        this.cancelGrapple();
+      } else {
+        const nx = dx / dist, ny = dy / dist;
+        const pull = 420; // pull speed
+        this.player.setVelocity(nx * pull, ny * pull);
+        // reduce gravity effect while pulling
+        this.player.setGravityY(200);
+      }
+    }
+  }
+
+  // Pause/Start helpers
+  startGame(){
+    this.started = true;
+    this.resumeGame();
+    document.getElementById('startScreen')?.classList.add('hidden');
+  }
+  pauseGame(initial=false){
+    this.isPaused = true;
+    this.physics.world.isPaused = true;
+    if (!initial) document.getElementById('pauseScreen')?.classList.remove('hidden');
+  }
+  resumeGame(){
+    this.isPaused = false;
+    this.physics.world.isPaused = false;
+    document.getElementById('pauseScreen')?.classList.add('hidden');
+  }
+  restartGame(){
+    // Reset save and reload scene
+    try { localStorage.removeItem('UAG_save'); } catch(e) {}
+    this.scene.restart();
+    // After restart, started should be false so start screen shows again (handled in create)
+    const startEl = document.getElementById('startScreen');
+    startEl?.classList.remove('hidden');
+  }
+
+  isTouchingCactus(){
+    if (!this.player?.body) return false;
+    const b = this.player.body;
+    // sample a few points around the player's body
+    const samples = [
+      { x: b.x + b.width/2, y: b.y + b.height/2 },
+      { x: b.x + 4, y: b.y + b.height/2 },
+      { x: b.x + b.width - 4, y: b.y + b.height/2 },
+      { x: b.x + b.width/2, y: b.y + b.height - 2 }
+    ];
+    for (const p of samples){
+      const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE);
+      const key = `${tx},${ty}`;
+      const spr = this.blocks.get(key);
+      if (spr && spr.getData('type') === 'cactus') return true;
+    }
+    return false;
   }
 
   setupTouchControls(){
@@ -361,6 +509,11 @@ class GameScene extends Phaser.Scene {
 
   // Mining logic (supports digging down by clicking lower tiles within reach)
   attemptMine(pointer) {
+    if (this.tools.equipped === 'hook') {
+      // Left click toggles grapple
+      if (this.hook.active) this.cancelGrapple(); else this.tryGrapple(pointer);
+      return;
+    }
     if (this.tools.equipped === 'pistol' || this.tools.equipped === 'minigun' || this.tools.equipped === 'sniper') {
       if (this.tools.equipped === 'pistol') {
         this.shootBullet(pointer);
@@ -384,7 +537,7 @@ class GameScene extends Phaser.Scene {
     const dx = sprite.x - this.player.x, dy = sprite.y - this.player.y;
     if (dx*dx + dy*dy > 120*120) return; // reach limit
 
-    const type = sprite.getData('type');
+  const type = sprite.getData('type');
 
     // Tool gating: require a pickaxe for stone
     if (type === 'stone') {
@@ -406,6 +559,7 @@ class GameScene extends Phaser.Scene {
 
   sprite.destroy();
   this.blocks.delete(key);
+  if (type === 'cactus') this.cactusTiles.delete(key);
   // If there is water above this tile, let it flow down
   this.tryFlowWaterFrom(tx, ty-1);
     this.saveState();
@@ -456,6 +610,56 @@ class GameScene extends Phaser.Scene {
     this.time.delayedCall(lifeMs, () => { if (bullet.active) bullet.destroy(); });
   }
 
+  // Grappling hook: attach to first solid tile along a ray towards pointer (bias upwards)
+  tryGrapple(pointer){
+    const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    let dx = worldPoint.x - this.player.x;
+    let dy = worldPoint.y - this.player.y;
+    // If aiming level/below, force straight up
+    if (dy >= -4) { dx = 0; dy = -1; }
+    const dist = Math.hypot(dx, dy) || 1;
+    const nx = dx / dist, ny = dy / dist;
+    const maxRange = 12 * TILE;
+    const step = TILE / 3;
+    let anchor = null;
+    for (let d = TILE; d <= maxRange; d += step) {
+      const x = this.player.x + nx * d;
+      const y = this.player.y + ny * d;
+      const tx = Math.floor(x / TILE);
+      const ty = Math.floor(y / TILE);
+      if (this.hasSolidBlockAt(tx, ty)) {
+        anchor = { x: tx*TILE + TILE/2, y: ty*TILE + TILE/2 };
+        break;
+      }
+    }
+    if (anchor) {
+      this.hook.active = true;
+      this.hook.anchor = anchor;
+    } else {
+      this.showToast('Ei tarttumapintaa');
+    }
+  }
+
+  cancelGrapple(){
+    this.hook.active = false;
+    this.hook.anchor = null;
+    this.hookGfx?.clear();
+  }
+
+  // Enemy collision handlers
+  onBirdHit(player, bird){ this._hitByEnemy(bird); }
+  onSlimeHit(player, slime){ this._hitByEnemy(slime); }
+  _hitByEnemy(enemy){
+    if (this.time.now < this.invulnUntil) return;
+    this.invulnUntil = this.time.now + 1000;
+    this.damage(1);
+    const dir = Math.sign(this.player.x - (enemy?.x ?? this.player.x)) || 1;
+    this.player.setVelocityX(dir * 260);
+    this.player.setVelocityY(-200);
+    this.player.setTint(0xff4444);
+    this.time.delayedCall(180, () => this.player.clearTint());
+  }
+
   placePlank(pointer) {
     if (this.inv.plank <= 0) { this.showToast('Ei lankkuja! Craftaa C'); return; }
     const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
@@ -469,9 +673,8 @@ class GameScene extends Phaser.Scene {
     const pb = new Phaser.Geom.Rectangle(this.player.body.x, this.player.body.y, this.player.body.width, this.player.body.height);
     if (Phaser.Geom.Intersects.RectangleToRectangle(newRect, pb)) { this.showToast('Liian lähellä'); return; }
 
-    this.addBlock(tx, ty, 'tex_ground', 'plank', true);
-    this.inv.plank -= 1; this.updateInventoryUI();
-    document.getElementById('sfxPlace')?.play().catch(()=>{});
+  this.addBlock(tx, ty, 'tex_ground', 'plank', true);
+  this.inv.plank -= 1; this.updateInventoryUI();
 
     // persist placement
     this.worldDiff.placed.push({ tx, ty, type:'plank', textureKey:'tex_ground' });
@@ -528,8 +731,9 @@ class GameScene extends Phaser.Scene {
     } else {
       if (!this.worldDiff.removed.includes(key)) this.worldDiff.removed.push(key);
     }
-    block.destroy();
-    this.blocks.delete(key);
+  block.destroy();
+  this.blocks.delete(key);
+  if (type === 'cactus') this.cactusTiles.delete(key);
     // If there is water above this tile, let it flow down
     this.tryFlowWaterFrom(tx, ty-1);
     bullet.destroy();
@@ -559,7 +763,7 @@ class GameScene extends Phaser.Scene {
     const coin = this.physics.add.sprite(x, y-10, 'tex_coin');
     coin.setVelocity(Phaser.Math.Between(-80,80), -220); coin.setBounce(0.4); coin.setCollideWorldBounds(true);
     this.physics.add.collider(coin, this.platforms);
-    this.physics.add.overlap(this.player, coin, ()=>{ coin.destroy(); this.state.coins++; this.updateUI(); this.saveState(); document.getElementById('sfxPickup')?.play().catch(()=>{}); }, null, this);
+  this.physics.add.overlap(this.player, coin, ()=>{ coin.destroy(); this.state.coins++; this.updateUI(); this.saveState(); }, null, this);
     // Track in current chunk if generating
     if (this.currentChunk!=null) this.chunks.get(this.currentChunk)?.pickups.push(coin);
   }
@@ -580,18 +784,63 @@ class GameScene extends Phaser.Scene {
 
   onItemPickup(player, item){
     const type = item.getData('item');
-    if (type === 'wood') { this.inv.wood++; this.updateInventoryUI(); this.saveState(); document.getElementById('sfxPickup')?.play().catch(()=>{}); }
-    else if (type === 'stone') { this.inv.stone++; this.updateInventoryUI(); this.saveState(); document.getElementById('sfxPickup')?.play().catch(()=>{}); }
+    if (type === 'wood' || type === 'stone') {
+      if (!this.addToBackpack(type, 1)) {
+        // fallback to main inv if backpack full
+        if (type === 'wood') this.inv.wood++; else this.inv.stone++;
+      }
+  this.updateInventoryUI(); this.updateBackpackUI(); this.saveState();
+    }
     item.destroy();
+  }
+
+  // Backpack helpers
+  addToBackpack(item, qty){
+    // Try to stack into existing slot
+    for (let i=0;i<this.backpack.length;i++){
+      const s = this.backpack[i];
+      if (s && s.item === item) { s.qty += qty; return true; }
+    }
+    // Find empty slot
+    for (let i=0;i<this.backpack.length;i++){
+      if (!this.backpack[i]) { this.backpack[i] = { item, qty }; return true; }
+    }
+    return false;
+  }
+  dumpBackpackToInventory(){
+    for (let i=0;i<this.backpack.length;i++){
+      const s = this.backpack[i]; if (!s) continue;
+      if (s.item === 'wood') this.inv.wood += s.qty;
+      else if (s.item === 'stone') this.inv.stone += s.qty;
+      // extendable for other items later
+      this.backpack[i] = null;
+    }
+    this.updateInventoryUI(); this.updateBackpackUI(); this.saveState();
+  }
+  toggleBackpack(){
+    const panel = document.getElementById('backpackPanel');
+    if (!panel) return;
+    const hidden = panel.classList.toggle('hidden');
+    if (!hidden) this.updateBackpackUI();
+  }
+  updateBackpackUI(){
+    const slots = document.querySelectorAll('#backpackPanel .bp-slot');
+    if (!slots?.length) return;
+    slots.forEach((el, i)=>{
+      const s = this.backpack[i];
+      const nameEl = el.querySelector('.bp-name');
+      const countEl = el.querySelector('.bp-count');
+      if (s) { nameEl.textContent = s.item; countEl.textContent = `×${s.qty}`; }
+      else { nameEl.textContent = 'Tyhjä'; countEl.textContent = ''; }
+    });
   }
 
   onPickup(player, gem) {
     if (gem.texture.key === 'tex_red') {
-      this.state.canFly = true;
-      this.showToast('LENTO AVATTU! Pidä Ylös/Space lentääksesi');
-      document.getElementById('sfxCoin')?.play().catch(()=>{});
+  this.state.canFly = true;
+  this.showToast('LENTO AVATTU! Pidä Ylös/Space lentääksesi');
     } else {
-      this.state.coins += 1; document.getElementById('sfxPickup')?.play().catch(()=>{});
+  this.state.coins += 1;
     }
     this.updateUI(); this.saveState();
     gem.destroy();
@@ -613,7 +862,7 @@ class GameScene extends Phaser.Scene {
     slots[3].textContent = `Kolikot: ${this.state.coins}`;
     slots[4].textContent = this.state.canFly ? 'Lento ✓' : '';
     // Show equipped tool
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase' };
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', hook:'Koukku' };
     slots[5].textContent = `Työkalu: ${toolNames[this.tools.equipped]}`;
   }
 
@@ -621,7 +870,7 @@ class GameScene extends Phaser.Scene {
     const select = document.getElementById('toolSelect');
     if (!select) return;
     select.innerHTML = '';
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase' };
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', hook:'Koukku' };
     for (const tool in this.tools.owned) {
       if (this.tools.owned[tool]) {
         const option = document.createElement('option');
@@ -649,8 +898,9 @@ class GameScene extends Phaser.Scene {
       sprite = this.platforms.create(x, y, textureKey);
       sprite.refreshBody();
       sprite.setData('type', type);
-      const k = this.keyFromTile(tx, ty);
-      this.blocks.set(k, sprite);
+  const k = this.keyFromTile(tx, ty);
+  this.blocks.set(k, sprite);
+  if (type === 'cactus') this.cactusTiles.add(k);
       if (this.currentChunk!=null) this.chunks.get(this.currentChunk)?.blocks.add(k);
     } else {
       sprite = this.add.image(x, y, textureKey);
@@ -705,19 +955,43 @@ class GameScene extends Phaser.Scene {
     const startTx = cx * CHUNK_W;
     const endTx = startTx + CHUNK_W - 1;
 
-    // Surface line and underground fill
+  // Determine biome for this chunk: trend toward desert the farther from center ("pelin reunaan" aavikko)
+    const dist = Math.abs(cx);
+    const centerNoDesert = 8;      // chunks around center: no desert here
+    const farAlwaysDesert = 25;    // beyond this: always desert
+    let biome;
+    if (dist <= centerNoDesert) {
+      biome = 'forest';
+    } else if (dist >= farAlwaysDesert) {
+      biome = 'desert';
+    } else {
+      // Smoothly increase desert probability from 15% to 85% between the thresholds
+      const t = (dist - centerNoDesert) / (farAlwaysDesert - centerNoDesert);
+      const desertProb = 0.15 + t * 0.70; // 0.15..0.85
+      biome = (rng() < desertProb) ? 'desert' : 'forest';
+    }
+
+    // Surface line and underground fill per biome
     for (let tx = startTx; tx <= endTx; tx++) {
-      // solid surface
-      this.addBlock(tx, SURFACE_Y, 'tex_ground', 'ground', true);
-      for (let ty = SURFACE_Y+1; ty < WORLD_TILES_Y; ty++) {
-        const tex = (ty - SURFACE_Y > 2) ? 'tex_stone' : 'tex_ground';
-        const type = (tex === 'tex_stone') ? 'stone' : 'ground';
-        this.addBlock(tx, ty, tex, type, true);
+      if (biome === 'desert') {
+        this.addBlock(tx, SURFACE_Y, 'tex_sand', 'sand', true);
+        for (let ty = SURFACE_Y+1; ty < WORLD_TILES_Y; ty++) {
+          const tex = (ty - SURFACE_Y > 2) ? 'tex_sandstone' : 'tex_sand';
+          const type = (tex === 'tex_sandstone') ? 'stone' : 'sand';
+          this.addBlock(tx, ty, tex, type, true);
+        }
+      } else {
+        this.addBlock(tx, SURFACE_Y, 'tex_ground', 'ground', true);
+        for (let ty = SURFACE_Y+1; ty < WORLD_TILES_Y; ty++) {
+          const tex = (ty - SURFACE_Y > 2) ? 'tex_stone' : 'tex_ground';
+          const type = (tex === 'tex_stone') ? 'stone' : 'ground';
+          this.addBlock(tx, ty, tex, type, true);
+        }
       }
     }
 
-    // Create some underground water ponds in this chunk
-    const ponds = Math.floor(rng()*2); // 0-1 ponds per chunk
+  // Create some underground water ponds in this chunk (rare in desert)
+  const ponds = biome === 'desert' ? (rng()<0.15?1:0) : Math.floor(rng()*2); // desert rare oases
     for (let p=0; p<ponds; p++) {
       const pondW = 2 + Math.floor(rng()*3); // 2-4 tiles wide
       const pondX = startTx + 2 + Math.floor(rng() * Math.max(1, CHUNK_W - pondW - 4));
@@ -739,18 +1013,31 @@ class GameScene extends Phaser.Scene {
       const len = 2 + Math.floor(rng()*6);
       const px = startTx + 2 + Math.floor(rng() * Math.max(1, (CHUNK_W - len - 4)));
       const py = 6 + Math.floor(rng() * (SURFACE_Y - 8));
-      for (let j=0;j<len;j++) this.addBlock(px+j, py, 'tex_ground', 'ground', true);
+      const platTex = biome === 'desert' ? 'tex_sand' : 'tex_ground';
+      const platType = biome === 'desert' ? 'sand' : 'ground';
+      for (let j=0;j<len;j++) this.addBlock(px+j, py, platTex, platType, true);
     }
 
-    // Trees on surface
-    const trees = 3 + Math.floor(rng()*4);
-    for (let i=0;i<trees;i++){
-      const tx = startTx + 2 + Math.floor(rng() * (CHUNK_W - 4));
-      const baseTy = SURFACE_Y - 1;
-      const height = 3 + Math.floor(rng()*3);
-      for (let h=0; h<height; h++) this.addBlock(tx, baseTy-h, 'tex_trunk', 'trunk', true);
-      for (let lx=-2; lx<=2; lx++) for (let ly=-2; ly<=0; ly++) {
-        if (Math.abs(lx)+Math.abs(ly) <= 3) this.addBlock(tx+lx, baseTy - height + ly, 'tex_leaves', 'leaves', false);
+    if (biome === 'desert') {
+      // Cacti on surface
+      const cacti = 4 + Math.floor(rng()*4);
+      for (let i=0;i<cacti;i++){
+        const tx = startTx + 2 + Math.floor(rng() * (CHUNK_W - 4));
+        const baseTy = SURFACE_Y - 1;
+        const height = 2 + Math.floor(rng()*3); // 2-4 tall
+        for (let h=0; h<height; h++) this.addBlock(tx, baseTy - h, 'tex_cactus', 'cactus', true);
+      }
+    } else {
+      // Trees on surface (forest)
+      const trees = 3 + Math.floor(rng()*4);
+      for (let i=0;i<trees;i++){
+        const tx = startTx + 2 + Math.floor(rng() * (CHUNK_W - 4));
+        const baseTy = SURFACE_Y - 1;
+        const height = 3 + Math.floor(rng()*3);
+        for (let h=0; h<height; h++) this.addBlock(tx, baseTy-h, 'tex_trunk', 'trunk', true);
+        for (let lx=-2; lx<=2; lx++) for (let ly=-2; ly<=0; ly++) {
+          if (Math.abs(lx)+Math.abs(ly) <= 3) this.addBlock(tx+lx, baseTy - height + ly, 'tex_leaves', 'leaves', false);
+        }
       }
     }
 
@@ -806,7 +1093,7 @@ class GameScene extends Phaser.Scene {
     // Destroy blocks in this chunk
     for (const key of data.blocks) {
       const spr = this.blocks.get(key);
-      if (spr) { spr.destroy(); this.blocks.delete(key); }
+  if (spr) { if (spr.getData('type')==='cactus') this.cactusTiles.delete(key); spr.destroy(); this.blocks.delete(key); }
     }
     // Decor (also remove from water registry if water)
     for (const d of data.decor) {
@@ -1013,7 +1300,8 @@ class GameScene extends Phaser.Scene {
     this.tools.equipped = tool; this.updateInventoryUI(); this.saveState();
   }
   cycleTool(){
-  const order = ['hand','wooden','stone','iron','pistol','minigun','knife','sniper'];
+  const order = ['hand','wooden','stone','iron','pistol','minigun','knife','sniper','hook'];
+  if (!this.tools.owned?.hook) this.tools.owned.hook = true;
     let idx = order.indexOf(this.tools.equipped);
     for (let i=1;i<=order.length;i++){
       const next = order[(idx+i)%order.length];
@@ -1056,45 +1344,70 @@ window.addEventListener('load', () => {
   const menu = document.getElementById('settingsMenu');
   btn?.addEventListener('click', () => menu?.classList.toggle('hidden'));
 
+  // Backpack UI buttons
+  document.getElementById('backpackBtn')?.addEventListener('click', ()=> window.gameScene?.toggleBackpack());
+  document.getElementById('bpClose')?.addEventListener('click', ()=> window.gameScene?.toggleBackpack());
+  document.getElementById('bpDump')?.addEventListener('click', ()=> window.gameScene?.dumpBackpackToInventory());
+
   // Merchant buttons
   document.getElementById('buyWood')?.addEventListener('click', () => {
     const s = window.gameScene; if (!s) return;
-    if (s.state.coins >= 5) {
-      s.state.coins -= 5; s.inv.wood += 30; s.updateUI(); s.saveState();
-      document.getElementById('sfxCoin')?.play().catch(()=>{});
-    }
+  if (s.state.coins >= 5) { s.state.coins -= 5; s.inv.wood += 30; s.updateUI(); s.saveState(); }
+  });
+  // Settings-merchant mirrors
+  document.getElementById('buyWood2')?.addEventListener('click', () => {
+    const s = window.gameScene; if (!s) return;
+  if (s.state.coins >= 5) { s.state.coins -= 5; s.inv.wood += 30; s.updateUI(); s.saveState(); }
   });
   // Outfit purchases
   document.getElementById('buyOutfitNormal')?.addEventListener('click', () => {
     const s = window.gameScene; if (!s) return;
-    if (s.state.coins >= 3) {
-      s.state.coins -= 3; s.custom.outfit = 'normal'; s.updatePlayerAppearance(); s.updateUI(); s.saveState();
-      document.getElementById('sfxCoin')?.play().catch(()=>{});
-    }
+  if (s.state.coins >= 3) { s.state.coins -= 3; s.custom.outfit = 'normal'; s.updatePlayerAppearance(); s.updateUI(); s.saveState(); }
+  });
+  document.getElementById('buyOutfitNormal2')?.addEventListener('click', () => {
+    const s = window.gameScene; if (!s) return;
+  if (s.state.coins >= 3) { s.state.coins -= 3; s.custom.outfit = 'normal'; s.updatePlayerAppearance(); s.updateUI(); s.saveState(); }
   });
   document.getElementById('buyOutfitSpecial')?.addEventListener('click', () => {
     const s = window.gameScene; if (!s) return;
-    if (s.state.coins >= 7) {
-      s.state.coins -= 7; s.custom.outfit = 'special'; s.updatePlayerAppearance(); s.updateUI(); s.saveState();
-      document.getElementById('sfxCoin')?.play().catch(()=>{});
-    }
+  if (s.state.coins >= 7) { s.state.coins -= 7; s.custom.outfit = 'special'; s.updatePlayerAppearance(); s.updateUI(); s.saveState(); }
+  });
+  document.getElementById('buyOutfitSpecial2')?.addEventListener('click', () => {
+    const s = window.gameScene; if (!s) return;
+  if (s.state.coins >= 7) { s.state.coins -= 7; s.custom.outfit = 'special'; s.updatePlayerAppearance(); s.updateUI(); s.saveState(); }
   });
   // Tool purchases
   document.getElementById('buyPickWood')?.addEventListener('click', () => {
     const s = window.gameScene; if (!s) return;
-    if (s.state.coins >= 2) { s.state.coins -= 2; s.tools.owned.wooden = true; s.updateUI(); s.updateToolSelect(); s.saveState(); document.getElementById('sfxCoin')?.play().catch(()=>{}); }
+  if (s.state.coins >= 2) { s.state.coins -= 2; s.tools.owned.wooden = true; s.updateUI(); s.updateToolSelect(); s.saveState(); }
+  });
+  document.getElementById('buyPickWood2')?.addEventListener('click', () => {
+    const s = window.gameScene; if (!s) return;
+  if (s.state.coins >= 2) { s.state.coins -= 2; s.tools.owned.wooden = true; s.updateUI(); s.updateToolSelect(); s.saveState(); }
   });
   document.getElementById('buyPickStone')?.addEventListener('click', () => {
     const s = window.gameScene; if (!s) return;
-    if (s.state.coins >= 4) { s.state.coins -= 4; s.tools.owned.stone = true; s.updateUI(); s.updateToolSelect(); s.saveState(); document.getElementById('sfxCoin')?.play().catch(()=>{}); }
+  if (s.state.coins >= 4) { s.state.coins -= 4; s.tools.owned.stone = true; s.updateUI(); s.updateToolSelect(); s.saveState(); }
+  });
+  document.getElementById('buyPickStone2')?.addEventListener('click', () => {
+    const s = window.gameScene; if (!s) return;
+  if (s.state.coins >= 4) { s.state.coins -= 4; s.tools.owned.stone = true; s.updateUI(); s.updateToolSelect(); s.saveState(); }
   });
   document.getElementById('buyPickIron')?.addEventListener('click', () => {
     const s = window.gameScene; if (!s) return;
-    if (s.state.coins >= 6) { s.state.coins -= 6; s.tools.owned.iron = true; s.updateUI(); s.updateToolSelect(); s.saveState(); document.getElementById('sfxCoin')?.play().catch(()=>{}); }
+  if (s.state.coins >= 6) { s.state.coins -= 6; s.tools.owned.iron = true; s.updateUI(); s.updateToolSelect(); s.saveState(); }
+  });
+  document.getElementById('buyPickIron2')?.addEventListener('click', () => {
+    const s = window.gameScene; if (!s) return;
+  if (s.state.coins >= 6) { s.state.coins -= 6; s.tools.owned.iron = true; s.updateUI(); s.updateToolSelect(); s.saveState(); }
   });
   document.getElementById('buyPistol')?.addEventListener('click', () => {
     const s = window.gameScene; if (!s) return;
-    if (s.state.coins >= 10) { s.state.coins -= 10; s.tools.owned.pistol = true; s.updateUI(); s.updateToolSelect(); s.saveState(); document.getElementById('sfxCoin')?.play().catch(()=>{}); }
+  if (s.state.coins >= 10) { s.state.coins -= 10; s.tools.owned.pistol = true; s.updateUI(); s.updateToolSelect(); s.saveState(); }
+  });
+  document.getElementById('buyPistol2')?.addEventListener('click', () => {
+    const s = window.gameScene; if (!s) return;
+  if (s.state.coins >= 10) { s.state.coins -= 10; s.tools.owned.pistol = true; s.updateUI(); s.updateToolSelect(); s.saveState(); }
   });
 
   document.getElementById('closeMerchant')?.addEventListener('click', () => window.gameScene?.closeMerchant());
@@ -1111,10 +1424,6 @@ window.addEventListener('load', () => {
   const hairColor = document.getElementById('hairColor');
 
   function applySettings(){
-    const m = document.getElementById('bgm');
-    const sfxEls = ['sfxJump','sfxPlace','sfxPickup','sfxCoin'].map(id=>document.getElementById(id));
-    if (m && musicVol) m.volume = Number(musicVol.value);
-    if (sfxVol) sfxEls.forEach(e=>{ if (e) e.volume = Number(sfxVol.value); });
     const settings = {
       musicVol: Number(musicVol?.value||0.5),
       sfxVol: Number(sfxVol?.value||0.8),
@@ -1167,7 +1476,6 @@ window.addEventListener('load', () => {
   eyeColor?.addEventListener('input', applySettings);
   hairColor?.addEventListener('input', applySettings);
 
-  // Initial apply and try start bgm
+  // Initial apply
   applySettings();
-  document.getElementById('bgm')?.play().catch(()=>{});
 });

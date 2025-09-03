@@ -22,13 +22,13 @@
   <div id="health">Elämät: 4</div>
   <div id="coins">Kolikot: 0</div>
   <div id="settingsBtn">⚙️</div>
+  <div id="backpackBtn" title="Reppu (E)">🎒</div>
 </div>
 
 <div id="settingsMenu" class="hidden">
   <label><input type="checkbox" id="toggleFly"> Salli lentäminen</label><br>
   <label><input type="checkbox" id="showHearts" checked> Näytä sydämet</label><br>
-  <label>Musiikki: <input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.5"></label><br>
-  <label>SFX: <input type="range" id="sfxVol" min="0" max="1" step="0.05" value="0.8"></label>
+  <!-- Äänet poistettu -->
   <label>Työkalu: <select id="toolSelect"></select></label>
   <hr>
   <strong>Hahmon ulkoasu</strong><br>
@@ -37,6 +37,26 @@
   <label><input type="checkbox" id="eyesGlow"> Hohtavat silmät</label><br>
   <label>Silmien väri: <input type="color" id="eyeColor" value="#ffffff"></label><br>
   <label>Hiusten väri: <input type="color" id="hairColor" value="#222222"></label>
+  <hr>
+  <strong>Kauppias (asetuksista)</strong>
+  <div class="merchant-inline">
+    <div>30 puublokkia — 5 kolikkoa</div>
+    <button id="buyWood2">Osta</button>
+    <div style="margin-top:6px">Työkalut</div>
+    <div>Puuhakku — 2 kolikkoa</div>
+    <button id="buyPickWood2">Osta puuhakku</button>
+    <div>Kivihakku — 4 kolikkoa</div>
+    <button id="buyPickStone2">Osta kivihakku</button>
+    <div>Rautahakku — 6 kolikkoa</div>
+    <button id="buyPickIron2">Osta rautahakku</button>
+    <div style="margin-top:6px">Pistooli — 10 kolikkoa</div>
+    <button id="buyPistol2">Osta pistooli</button>
+    <div style="margin-top:6px">Asut</div>
+    <div>Tavallinen asu — 3 kolikkoa</div>
+    <button id="buyOutfitNormal2">Osta tavallinen</button>
+    <div>Erikoisasu (reppu) — 7 kolikkoa</div>
+    <button id="buyOutfitSpecial2">Osta erikoisasu</button>
+  </div>
 </div>
 
 <div id="inventory">
@@ -93,14 +113,52 @@
   </div>
 </div>
 
-<!-- Taustamusiikki (voit korvata src-polun omalla tiedostolla) -->
-<audio id="bgm" src="assets/ambient.mp3" loop preload="auto"></audio>
-<!-- Sound effects (placeholder files, korvaa omilla tiedostoilla assets-kansioon) -->
-<audio id="sfxJump" src="assets/jump.wav" preload="auto"></audio>
-<audio id="sfxPlace" src="assets/place.wav" preload="auto"></audio>
-<audio id="sfxPickup" src="assets/pickup.wav" preload="auto"></audio>
-<audio id="sfxCoin" src="assets/coin.wav" preload="auto"></audio>
+<!-- Äänielementit poistettu -->
 
 <script src="game.js"></script>
+
+<!-- Aloitusruutu -->
+<div id="startScreen" class="overlay">
+  <div class="panel">
+    <h1>Ultimate Adventure</h1>
+    <p>Liiku: A/D tai nuolinäppäimet • Hyppy: W/↑/Space • Klikkaa louhi/ammu • Oikea klikkaus asettaa lankun • 1–9/Q työkalut • E avaa kauppiaan kun lähellä</p>
+    <div class="actions">
+      <button id="btnStart">Aloita peli</button>
+      <button id="btnStartSettings">Asetukset</button>
+    </div>
+  </div>
+  
+</div>
+
+<!-- Paussivalikko -->
+<div id="pauseScreen" class="overlay hidden">
+  <div class="panel">
+    <h3>Peli on tauolla</h3>
+    <div class="actions">
+      <button id="btnResume">Jatka</button>
+      <button id="btnRestart">Aloita alusta</button>
+      <button id="btnPauseSettings">Asetukset</button>
+    </div>
+    <small>Vinkki: Esc = tauko/jatka</small>
+  </div>
+  
+</div>
+
+<!-- Reppu-paneeli -->
+<div id="backpackPanel" class="hidden">
+  <div class="bp-box">
+    <h3>Reppu</h3>
+    <div class="bp-slots">
+      <div class="bp-slot" data-i="0"><span class="bp-name">Tyhjä</span><span class="bp-count"></span></div>
+      <div class="bp-slot" data-i="1"><span class="bp-name">Tyhjä</span><span class="bp-count"></span></div>
+      <div class="bp-slot" data-i="2"><span class="bp-name">Tyhjä</span><span class="bp-count"></span></div>
+    </div>
+    <div class="bp-actions">
+      <button id="bpDump">Tyhjennä reppu inventaarioon</button>
+      <button id="bpClose">Sulje</button>
+    </div>
+  </div>
+  
+</div>
 </body>
 </html>
