@@ -49,8 +49,9 @@ class GameScene extends Phaser.Scene {
 
     // Tool system
     this.tools = {
-      owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, minigun: true, knife: true, sniper: true, hook: true },
-      equipped: 'pistol'
+      owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, cannon: true, minigun: true, knife: true, sniper: true, hook: true, cloner: true },
+      equipped: 'pistol',
+      cannonMode: 'minigun' // 'minigun' | 'sniper'
     };
 
     // Endless world bookkeeping
@@ -72,6 +73,23 @@ class GameScene extends Phaser.Scene {
   // Pause state
   this.isPaused = false;
   this.started = false;
+
+  // Vine (liaani) state
+  this.vine = { active:false, reeling:false, anchor:null, length:0 };
+
+  // Cloner tool and clones
+  this.cloneSettings = { target: 'none' }; // 'none'|'ground'|'stone'|'sand'|'cactus'|'trunk'
+  this.clones = this.physics?.add?.group ? this.physics.add.group() : null;
+  this.cloneList = [];
+
+  // Moped state
+  this.moped = { sprite: null, zone: null, prompt: null, mounted: false, color: '#ff6a00', speedMult: 1.6, pos: null };
+  this.nearMoped = false;
+
+  // Placeable cannons state
+  this.cannons = [];
+  this.cannonTiles = new Set(); // keys "tx,ty" where cannons are placed
+  this.cannonPositions = []; // persisted positions [{tx,ty}]
   }
 
   preload() {
@@ -193,6 +211,17 @@ class GameScene extends Phaser.Scene {
   // Hook head texture
   g.fillStyle(0xffffff,1); g.fillCircle(6,6,6); g.lineStyle(2,0x444444,1); g.strokeCircle(6,6,6);
   g.generateTexture('tex_hook',12,12); g.clear();
+
+  // Moped texture (side view)
+  g.fillStyle(0x333333,1); g.fillRect(2,10,26,8);
+  g.fillStyle(0x000000,1); g.fillCircle(8,20,6); g.fillCircle(22,20,6);
+  g.lineStyle(2,0x111111,1); g.strokeCircle(8,20,6); g.strokeCircle(22,20,6);
+  g.fillStyle(0xff6a00,1); g.fillRect(8,6,14,8);
+  g.generateTexture('tex_moped',32,26); g.clear();
+
+  // Cannon base and barrel textures (placeable)
+  g.fillStyle(0x6e6e6e,1); g.fillRoundedRect(0,0,32,20,5); g.lineStyle(2,0x4a4a4a,1); g.strokeRoundedRect(0,0,32,20,5); g.generateTexture('tex_cannon_base',32,20); g.clear();
+  g.fillStyle(0x4a4a4a,1); g.fillRect(0,0,26,8); g.lineStyle(2,0x2e2e2e,1); g.strokeRect(0,0,26,8); g.generateTexture('tex_cannon_barrel',26,8); g.clear();
   }
 
   create() {
@@ -213,9 +242,13 @@ class GameScene extends Phaser.Scene {
     this.slimes = this.physics.add.group();
     this.bullets = this.physics.add.group({ allowGravity: false });
     this.waters = this.add.group();
+  this.clones = this.physics.add.group();
 
   // Rope graphics
   this.hookGfx = this.add.graphics();
+  this.vineGfx = this.add.graphics();
+  // Cannon aim graphics (for tarkka mode)
+  this.cannonAimGfx = this.add.graphics();
 
     // Initialize endless world (generate starting chunks around x=0)
     this.initInfiniteWorld();
@@ -237,21 +270,37 @@ class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.slimes, this.onSlimeHit, null, this);
   this.physics.add.overlap(this.bullets, this.birds, (bullet, bird)=>{ bird.destroy(); bullet.destroy(); }, null, this);
   this.physics.add.overlap(this.bullets, this.slimes, (bullet, slime)=>{ slime.destroy(); bullet.destroy(); }, null, this);
+  this.physics.add.overlap(this.bullets, this.clones, (bullet, clone)=>{ this.removeClone(clone); bullet.destroy(); }, null, this);
 
     // Input
     this.cursors = this.input.keyboard.createCursorKeys();
-  this.keys = this.input.keyboard.addKeys({ A: 'A', D: 'D', W: 'W', SPACE: 'SPACE', C: 'C', E: 'E', ONE: 'ONE', TWO: 'TWO', THREE: 'THREE', FOUR: 'FOUR', FIVE: 'FIVE', SIX: 'SIX', SEVEN: 'SEVEN', EIGHT: 'EIGHT', Q: 'Q' });
-    this.input.mouse?.disableContextMenu();
-    // Pointer interactions: on desktop left-click mines/shoots, right-click places
+  this.keys = this.input.keyboard.addKeys({ A: 'A', D: 'D', W: 'W', SPACE: 'SPACE', C: 'C', E: 'E', ONE: 'ONE', TWO: 'TWO', THREE: 'THREE', FOUR: 'FOUR', FIVE: 'FIVE', SIX: 'SIX', SEVEN: 'SEVEN', EIGHT: 'EIGHT', NINE: 'NINE', Q: 'Q', R: 'R', X: 'X' });
+  this.input.mouse?.disableContextMenu();
+  // Pointer interactions: on desktop left-click mines/shoots, right-click places
     // On touch, use placeMode toggle to place plank with a tap
     this.input.on('pointerdown', (pointer) => {
       if (!this.started || this.isPaused) return;
       const isTouch = pointer.pointerType === 'touch';
       if (!isTouch && pointer.rightButtonDown()) {
-        this.placePlank(pointer);
+        if (this.tools.equipped === 'cannon') this.placeCannon(pointer);
+        else if (this.tools.equipped === 'cloner') this.cycleCloneTarget();
+        else this.placePlank(pointer);
       } else {
-        if (isTouch && this.touchState.placeMode) this.placePlank(pointer);
-        else this.attemptMine(pointer);
+        if (isTouch && this.touchState.placeMode) {
+          if (this.tools.equipped === 'cannon') this.placeCannon(pointer);
+          else if (this.tools.equipped === 'cloner') this.spawnClone(pointer);
+          else this.placePlank(pointer);
+        }
+        else {
+          // Cannon fire when equipped
+          if (this.tools.equipped === 'cannon') {
+            this.fireCannon(pointer);
+          } else if (this.tools.equipped === 'cloner') {
+            this.spawnClone(pointer);
+          } else {
+            this.attemptMine(pointer);
+          }
+        }
       }
     });
   this.input.keyboard.on('keydown-C', () => { if (this.started && !this.isPaused) this.craftPlank(); });
@@ -270,8 +319,27 @@ class GameScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-SIX', guard(()=> this.tryEquipTool('minigun')));
     this.input.keyboard.on('keydown-SEVEN', guard(()=> this.tryEquipTool('knife')));
     this.input.keyboard.on('keydown-EIGHT', guard(()=> this.tryEquipTool('sniper')));
-    this.input.keyboard.on('keydown-NINE', guard(()=> this.tryEquipTool('hook')));
+  this.input.keyboard.on('keydown-NINE', guard(()=> this.tryEquipTool('hook')));
+  // 0 for cloner (if keyboard row allows)
+  this.input.keyboard.on('keydown-ZERO', guard(()=> this.tryEquipTool('cloner')));
     this.input.keyboard.on('keydown-Q', guard(()=> this.cycleTool()));
+    // Remove nearest clone hotkey
+    this.input.keyboard.on('keydown-X', guard(()=>{
+      if (!this.cloneList?.length) return;
+      let best=null, bestD2=Infinity;
+      for (const c of this.cloneList){ const d2=(c.x-this.player.x)**2+(c.y-this.player.y)**2; if (d2<bestD2){bestD2=d2; best=c;} }
+      if (best) this.removeClone(best);
+    }));
+    // Cannon mode toggle (when cannon equipped)
+    this.input.keyboard.on('keydown-R', guard(()=>{
+      if (this.tools.equipped === 'cannon') this.toggleCannonMode();
+    }));
+    // Space = vine toggle (shoot -> reel -> cancel)
+    this.input.keyboard.on('keydown-SPACE', guard(()=>{
+      const p = this.input.activePointer;
+      const fakePointer = { x: p.x, y: p.y };
+      this.onSpaceVine(fakePointer);
+    }));
 
     // Pause toggle (Esc)
     this.input.keyboard.on('keydown-ESC', ()=>{
@@ -279,20 +347,31 @@ class GameScene extends Phaser.Scene {
       if (this.isPaused) this.resumeGame(); else this.pauseGame();
     });
 
+    // Mopo: F nouse/poistu, Shift = turbo
+    this.input.keyboard.on('keydown-F', ()=>{
+      if (!this.started || this.isPaused) return;
+      if (this.nearMoped) this.toggleMoped();
+    });
+    this.input.keyboard.on('keydown-SHIFT', ()=>{ this._mopedBoost = true; });
+    this.input.keyboard.on('keyup-SHIFT',   ()=>{ this._mopedBoost = false; });
+
     // Camera/bounds (endless)
     const worldH = WORLD_TILES_Y * TILE;
     this.cameras.main.setBounds(-INF_W/2, 0, INF_W, worldH);
     this.physics.world.setBounds(-INF_W/2, 0, INF_W, worldH);
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
 
-    // Merchant placement and interaction (near spawn)
-    this.createMerchant();
+  // Merchant placement and interaction (near spawn)
+  this.createMerchant();
+  // Place moped near spawn
+  this.createMoped();
 
     // Instructions
     this.add.text(14,14,
     'Ohjeet:\nVasen/Oikea tai A/D = liiku  |  Ylös/Space = hyppy' +
     '\nVasen klikkaus = mainaa (myös alaspäin) tai ammu (pistoolilla)  |  Oikea klikkaus = aseta lankku' +
   '\nC = craftaa 3 puusta 1 lankku  |  E = kauppias  |  1-9/Q = työkalut' +
+      '\nSpace = liaani  |  R = Tykki-tila (Minigun/Tarkka)' +
       '\nPunainen timantti -> Lento  |  Vesi: uida ylös/alas Ylöksellä/Space' +
       '\nVaro lintuja ja limoja!',
       { fontFamily:'monospace', fontSize:'14px', color:'#fff' })
@@ -328,7 +407,7 @@ class GameScene extends Phaser.Scene {
   }
 
   update() {
-  if (!this.started || this.isPaused) { this.hookGfx?.clear(); return; }
+  if (!this.started || this.isPaused) { this.hookGfx?.clear(); this.vineGfx?.clear(); this.cannonAimGfx?.clear(); return; }
     // Reset merchant hint each frame, will be re-enabled by overlap
     this.nearMerchant = false;
     if (this.merchantPrompt) this.merchantPrompt.setVisible(false);
@@ -336,15 +415,82 @@ class GameScene extends Phaser.Scene {
     // Reset inWater flag
     this.inWater = false;
 
-    const onGround = this.player.body.blocked.down || this.player.body.touching.down;
+    // Cannon tarkka-aim guide
+    this.cannonAimGfx.clear();
+    if (this.tools.cannonMode === 'sniper') {
+      // From player if cannon equipped; also draw from placed cannons targeting something
+      const drawBeam = (sx,sy,tx,ty,color=0xffffff)=>{
+        const dx = tx - sx, dy = ty - sy; const dist = Math.hypot(dx,dy);
+        const maxL = 18 * TILE; const L = Math.min(dist, maxL);
+        const nx = dx / (dist||1), ny = dy / (dist||1);
+        const ex = sx + nx * L, ey = sy + ny * L;
+        this.cannonAimGfx.lineStyle(2, color, 0.5);
+        this.cannonAimGfx.beginPath();
+        this.cannonAimGfx.moveTo(sx, sy);
+        this.cannonAimGfx.lineTo(ex, ey);
+        this.cannonAimGfx.strokePath();
+      };
+      const p = this.input.activePointer; const wp = this.cameras.main.getWorldPoint(p.x, p.y);
+      if (this.tools.equipped === 'cannon') drawBeam(this.player.x, this.player.y, wp.x, wp.y, 0x9ad3ff);
+      // placed cannons: draw to their current aim (nearest enemy) if any
+      for (const c of this.cannons) {
+        if (!c?.barrel) continue;
+        // approximate aim by angle -> endpoint far away
+        const ang = c.barrel.rotation;
+        const sx = c.barrel.x + Math.cos(ang)*18;
+        const sy = c.barrel.y + Math.sin(ang)*18;
+        const ex = sx + Math.cos(ang) * 18 * TILE;
+        const ey = sy + Math.sin(ang) * 18 * TILE;
+        drawBeam(sx, sy, ex, ey, 0x9ad3ff);
+      }
+    }
+
+    // Aim any placed cannons toward pointer for visual feedback
+    if (this.cannons?.length) {
+      for (const c of this.cannons) {
+        if (!c?.barrel) continue;
+        // Acquire nearest enemy (slime or bird) within range
+        const range = 14 * TILE;
+        let best = null; let bestD2 = range*range;
+        const checkGroup = (grp)=>{
+          grp?.children?.iterate?.((e)=>{
+            if (!e || !e.active) return;
+            const dx = e.x - c.barrel.x, dy = e.y - c.barrel.y;
+            const d2 = dx*dx + dy*dy;
+            if (d2 < bestD2) { bestD2 = d2; best = e; }
+          });
+        };
+        checkGroup(this.slimes);
+        checkGroup(this.birds);
+        if (best) {
+          const angle = Math.atan2(best.y - c.barrel.y, best.x - c.barrel.x);
+          c.barrel.setRotation(angle);
+          // Fire cadence per cannon
+          if (!c._nextFireAt || this.time.now >= c._nextFireAt) {
+            c._nextFireAt = this.time.now + (this.tools.cannonMode==='minigun'? 160 : 640);
+            // Fire from barrel tip toward target
+            const sx = c.barrel.x + Math.cos(angle)*18;
+            const sy = c.barrel.y + Math.sin(angle)*18;
+            const opts = this.tools.cannonMode==='minigun' ? { speed: 650, lifeTiles: 6, spread: 0.09 } : { speed: 980, lifeTiles: 19, spread: 0 };
+            // Prevent self-destroy immediately: ignore cannon tile
+            const k = `${c.tx},${c.ty}`;
+            this.spawnBulletFrom(sx, sy, best.x, best.y, { ...opts, ignoreCannonKey: k });
+          }
+        }
+      }
+    }
+
+  const onGround = this.player.body.blocked.down || this.player.body.touching.down;
 
   const left = this.cursors.left.isDown || this.keys.A.isDown || this.touchState.left;
   const right = this.cursors.right.isDown || this.keys.D.isDown || this.touchState.right;
   const jump = this.cursors.up.isDown || this.keys.W.isDown || this.keys.SPACE.isDown || this.touchState.jump;
-    const speed = 220;
+    const baseSpeed = 220;
+    const riding = this.moped?.mounted;
+    const speed = riding ? baseSpeed * (this.moped.speedMult * (this._mopedBoost?1.25:1)) : baseSpeed;
 
-    if (left) { this.player.setVelocityX(-speed); this.player.setFlipX(true); }
-    else if (right) { this.player.setVelocityX(speed); this.player.setFlipX(false); }
+  if (left) { this.player.setVelocityX(-speed); this.player.setFlipX(true); }
+  else if (right) { this.player.setVelocityX(speed); this.player.setFlipX(false); }
     else { this.player.setVelocityX(0); }
 
     if (this.state.canFly) {
@@ -352,6 +498,19 @@ class GameScene extends Phaser.Scene {
     } else if (jump && onGround) {
       this.player.setVelocityY(-440);
       this.player.setScale(1.05,0.95); this.time.delayedCall(120,()=>this.player.setScale(1,1));
+    }
+
+    // Keep moped sprite attached when riding
+    if (this.moped?.sprite) {
+      const s = this.moped.sprite;
+      if (this.moped.mounted) {
+        s.setVisible(true);
+        s.setPosition(this.player.x, this.player.y+10);
+        s.setFlipX(this.player.flipX);
+      } else if (this.moped.pos) {
+        s.setVisible(true);
+        s.setPosition(this.moped.pos.x, this.moped.pos.y);
+      }
     }
 
     // Keep player within vertical bounds, X is endless
@@ -378,6 +537,52 @@ class GameScene extends Phaser.Scene {
       });
     }
 
+    // Clone AI: follow player and mine selected type
+    if (this.cloneList?.length) {
+      for (const c of this.cloneList) {
+        if (!c || !c.active) continue;
+        // follow
+        const dx = this.player.x - c.x;
+        if (Math.abs(dx) > 50) c.setVelocityX(Math.sign(dx) * 200); else c.setVelocityX(0);
+        // jump if stuck and player above
+        if ((this.player.y + 12) < c.y && (c.body.blocked.down || c.body.touching.down)) c.setVelocityY(-420);
+        // mine
+        if (this.cloneSettings.target !== 'none' && this.time.now >= c._nextMineAt) {
+          c._nextMineAt = this.time.now + 260;
+          // find nearest target block around clone within 2 tiles radius
+          const tx = Math.floor(c.x / TILE); const ty = Math.floor(c.y / TILE);
+          let bestKey = null; let bestD2 = Infinity; let bestSprite = null; let bestTx = 0; let bestTy = 0;
+          for (let ox=-2; ox<=2; ox++) for (let oy=-2; oy<=2; oy++){
+            const k = `${tx+ox},${ty+oy}`;
+            const spr = this.blocks.get(k);
+            if (!spr) continue;
+            if (spr.getData('type') !== this.cloneSettings.target) continue;
+            const x = (tx+ox)*TILE + TILE/2; const y = (ty+oy)*TILE + TILE/2;
+            const d2 = (x-c.x)*(x-c.x) + (y-c.y)*(y-c.y);
+            if (d2 < bestD2) { bestD2 = d2; bestKey = k; bestSprite = spr; bestTx = tx+ox; bestTy = ty+oy; }
+          }
+          if (bestSprite && bestKey) {
+            // mine similar to player
+            const type = bestSprite.getData('type');
+            if (type === 'trunk') this.dropWood(bestSprite.x, bestSprite.y);
+            else if (type === 'ground') { if (Math.random() < 0.30) this.dropCoin(bestSprite.x, bestSprite.y); }
+            else if (type === 'stone') { if (Math.random() < 0.85) this.dropStone(bestSprite.x, bestSprite.y); }
+            // persistence
+            if (type === 'plank') {
+              this.worldDiff.placed = this.worldDiff.placed.filter(p=>!(p.tx===bestTx && p.ty===bestTy));
+            } else {
+              if (!this.worldDiff.removed.includes(bestKey)) this.worldDiff.removed.push(bestKey);
+            }
+            bestSprite.destroy();
+            this.blocks.delete(bestKey);
+            if (type === 'cactus') this.cactusTiles.delete(bestKey);
+            this.tryFlowWaterFrom(bestTx, bestTy-1);
+            this.saveState();
+          }
+        }
+      }
+    }
+
     // Chunk management
     const centerChunk = Math.floor((this.player.x / TILE) / CHUNK_W);
     if (centerChunk !== this.lastCenterChunk) {
@@ -395,7 +600,7 @@ class GameScene extends Phaser.Scene {
     }
 
     // Grapple pull update and rope rendering
-    this.hookGfx.clear();
+  this.hookGfx.clear();
     if (this.hook.active && this.hook.anchor) {
       // Draw rope
       this.hookGfx.lineStyle(2, 0xffffff, 0.8);
@@ -417,6 +622,30 @@ class GameScene extends Phaser.Scene {
         // reduce gravity effect while pulling
         this.player.setGravityY(200);
       }
+    }
+
+    // Vine update and rendering
+    this.vineGfx.clear();
+    if (this.vine.active && this.vine.anchor) {
+      // Draw vine line
+      this.vineGfx.lineStyle(3, 0x6b8e23, 0.95);
+      this.vineGfx.beginPath();
+      this.vineGfx.moveTo(this.player.x, this.player.y);
+      this.vineGfx.lineTo(this.vine.anchor.x, this.vine.anchor.y);
+      this.vineGfx.strokePath();
+
+      const ax = this.vine.anchor.x, ay = this.vine.anchor.y;
+      const dx = ax - this.player.x, dy = ay - this.player.y;
+      const dist = Math.hypot(dx, dy);
+      if (!this.vine.length) this.vine.length = dist;
+      if (this.vine.reeling) this.vine.length = Math.max(18, this.vine.length - 200 * (1/60));
+      if (dist > this.vine.length) {
+        const nx = dx / dist, ny = dy / dist;
+        const pull = 520;
+        this.player.setVelocity(nx * pull, ny * pull);
+        this.player.setGravityY(300);
+      }
+      if (dist < 16) this.cancelVine();
     }
   }
 
@@ -514,11 +743,13 @@ class GameScene extends Phaser.Scene {
       if (this.hook.active) this.cancelGrapple(); else this.tryGrapple(pointer);
       return;
     }
-    if (this.tools.equipped === 'pistol' || this.tools.equipped === 'minigun' || this.tools.equipped === 'sniper') {
+    if (this.tools.equipped === 'pistol' || this.tools.equipped === 'minigun' || this.tools.equipped === 'sniper' || this.tools.equipped === 'cannon') {
       if (this.tools.equipped === 'pistol') {
         this.shootBullet(pointer);
       } else if (this.tools.equipped === 'minigun') {
         this.shootMinigunBurst(pointer);
+      } else if (this.tools.equipped === 'cannon') {
+        this.fireCannon(pointer);
       } else {
         this.shootSniper(pointer);
       }
@@ -574,12 +805,19 @@ class GameScene extends Phaser.Scene {
     // face towards pointer
     const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
     this.player.setFlipX(worldPoint.x < px);
+    // Kill slimes
     this.slimes.children.iterate((sl)=>{
       if (!sl || !sl.active) return;
       const dx = sl.x - px, dy = sl.y - py;
       if (dx*dx + dy*dy <= reach*reach) {
         sl.destroy();
       }
+    });
+    // Kill clones too (friendly-fire to allow removal)
+    this.clones?.children?.iterate?.((cl)=>{
+      if (!cl || !cl.active) return;
+      const dx = cl.x - px, dy = cl.y - py;
+      if (dx*dx + dy*dy <= reach*reach) this.removeClone(cl);
     });
   }
 
@@ -603,11 +841,64 @@ class GameScene extends Phaser.Scene {
     const normX = dirX / dist;
     const normY = dirY / dist;
     const bullet = this.bullets.create(this.player.x, this.player.y, 'tex_bullet');
-    const speed = 900; // faster
+  const speed = 980; // a bit faster for tarkka
     bullet.setVelocity(normX * speed, normY * speed);
     bullet.setRotation(Math.atan2(normY, normX));
-    const lifeMs = (17 * TILE / speed) * 1000;
+  const lifeMs = (19 * TILE / speed) * 1000; // longer reach for tarkka
     this.time.delayedCall(lifeMs, () => { if (bullet.active) bullet.destroy(); });
+    // Cannon hit check (shared approach)
+    bullet._lastCheck = 0;
+    bullet.preUpdate = (t, dt)=>{
+      Phaser.Physics.Arcade.Sprite.prototype.preUpdate.call(bullet, t, dt);
+      bullet._lastCheck += dt; if (bullet._lastCheck < 30) return; bullet._lastCheck = 0;
+      const tx = Math.floor(bullet.x / TILE), ty = Math.floor(bullet.y / TILE);
+      const key = `${tx},${ty}`;
+      if (this.cannonTiles.has(key)) {
+        this.removeCannonAt(tx, ty);
+        bullet.destroy();
+        this.saveState();
+      }
+    };
+  }
+
+  // --- Vine (liaani) ---
+  onSpaceVine(pointer){
+    // Toggle: shoot -> reel -> cancel
+    if (this.vine.active) {
+      if (!this.vine.reeling) this.vine.reeling = true; else this.cancelVine();
+      return;
+    }
+    const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    let dx = worldPoint.x - this.player.x;
+    let dy = worldPoint.y - this.player.y;
+    if (dy >= -4) { dx = 0; dy = -1; }
+    const dist = Math.hypot(dx, dy) || 1;
+    const nx = dx / dist, ny = dy / dist;
+    const maxRange = 14 * TILE;
+    const step = TILE / 3;
+    let anchor = null;
+    for (let d = TILE; d <= maxRange; d += step) {
+      const x = this.player.x + nx * d;
+      const y = this.player.y + ny * d;
+      const tx = Math.floor(x / TILE);
+      const ty = Math.floor(y / TILE);
+      if (this.hasSolidBlockAt(tx, ty)) { anchor = { x: tx*TILE + TILE/2, y: ty*TILE + TILE/2 }; break; }
+    }
+    if (anchor) {
+      this.vine.active = true;
+      this.vine.reeling = false;
+      this.vine.anchor = anchor;
+      this.vine.length = 0;
+    } else {
+      this.showToast('Ei tarttumapintaa');
+    }
+  }
+  cancelVine(){
+    this.vine.active = false;
+    this.vine.reeling = false;
+    this.vine.anchor = null;
+    this.vine.length = 0;
+    this.vineGfx?.clear();
   }
 
   // Grappling hook: attach to first solid tile along a ray towards pointer (bias upwards)
@@ -644,6 +935,37 @@ class GameScene extends Phaser.Scene {
     this.hook.active = false;
     this.hook.anchor = null;
     this.hookGfx?.clear();
+  }
+
+  // --- Clone tool ---
+  cycleCloneTarget(){
+    const order = ['none','ground','stone','sand','cactus','trunk'];
+    const idx = order.indexOf(this.cloneSettings.target);
+    this.cloneSettings.target = order[(idx+1) % order.length];
+    this.showToast(`Kloonaus kohde: ${this.cloneSettings.target}`);
+  }
+  spawnClone(pointer){
+    const limit = 3;
+    if (this.cloneList.length >= limit) { this.showToast('Klooneja täynnä'); return; }
+    const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+  const c = this.clones.create(worldPoint.x, worldPoint.y, 'tex_player_dyn');
+    c.setScale(0.95);
+    c.body.setSize(20, 34).setOffset(4, 2);
+    c.setData('isClone', true);
+    c.setCollideWorldBounds(true);
+  this.physics.add.collider(c, this.platforms);
+    this.cloneList.push(c);
+    // simple AI update hook per clone
+    c._nextMineAt = 0;
+    return c;
+  }
+
+  removeClone(clone){
+    if (!clone) return;
+    // remove from list and destroy sprite
+    this.cloneList = this.cloneList.filter(c=> c !== clone);
+    clone.destroy();
+    this.showToast('Klooni poistettu');
   }
 
   // Enemy collision handlers
@@ -683,6 +1005,55 @@ class GameScene extends Phaser.Scene {
     this.saveState();
   }
 
+  // Place a cannon (tykki) at target tile
+  placeCannon(pointer){
+    const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(worldPoint.x / TILE);
+    const ty = Math.floor(worldPoint.y / TILE);
+    const key = `${tx},${ty}`;
+  // Validate: tile must be empty and ground below solid and no existing cannon
+  if (this.blocks.has(key) || this.cannonTiles.has(key)) { this.showToast('Paikka varattu'); return; }
+    const belowKey = `${tx},${ty+1}`;
+    if (!this.blocks.has(belowKey)) { this.showToast('Tarvitsee alustan'); return; }
+    // Also prevent overlapping player
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    const newRect = new Phaser.Geom.Rectangle(x - TILE/2, y - TILE/2, TILE, TILE);
+    const pb = new Phaser.Geom.Rectangle(this.player.body.x, this.player.body.y, this.player.body.width, this.player.body.height);
+    if (Phaser.Geom.Intersects.RectangleToRectangle(newRect, pb)) { this.showToast('Liian lähellä'); return; }
+
+    const cannon = this.spawnCannonAt(tx, ty);
+    if (cannon) {
+      this.cannonTiles.add(key);
+      this.cannonPositions.push({ tx, ty });
+      this.saveState();
+      this.showToast('Tykki asetettu');
+    }
+  }
+
+  spawnCannonAt(tx, ty){
+    const x = tx*TILE + TILE/2;
+    const y = ty*TILE + TILE/2;
+    const base = this.add.image(x, y, 'tex_cannon_base');
+    const barrel = this.add.image(x+4, y-10, 'tex_cannon_barrel').setOrigin(0.1,0.5);
+    const zone = this.add.zone(x, y, TILE, TILE);
+    this.physics.world.enable(zone, Phaser.Physics.Arcade.STATIC_BODY);
+    zone.setData('tx', tx); zone.setData('ty', ty);
+    // Overlap: any bullet touching the zone destroys the cannon
+    this.physics.add.overlap(this.bullets, zone, (bullet, z)=>{
+      const cx = z.getData('tx'), cy = z.getData('ty');
+      this.removeCannonAt(cx, cy);
+      bullet.destroy();
+      this.saveState();
+    }, null, this);
+    // Track entity
+    const c = { tx, ty, base, barrel, zone, mode: this.tools.cannonMode };
+    this.cannons.push(c);
+    // Ensure tile registry has this cannon
+    this.cannonTiles.add(`${tx},${ty}`);
+    // Optional: overlap for player proximity (not needed for firing)
+    return c;
+  }
+
   craftPlank() {
     if (this.inv.wood >= 3) {
       this.inv.wood -= 3; this.inv.plank += 1; this.updateInventoryUI(); this.saveState();
@@ -690,6 +1061,17 @@ class GameScene extends Phaser.Scene {
     } else {
       this.showToast('Tarvitset 3 puuta');
     }
+  }
+
+  // Cannon helpers
+  toggleCannonMode(){
+    this.tools.cannonMode = this.tools.cannonMode === 'minigun' ? 'sniper' : 'minigun';
+    this.updateInventoryUI();
+    this.showToast(`Tykki: ${this.tools.cannonMode==='minigun'?'Minigun':'Tarkka'}`);
+    this.saveState();
+  }
+  fireCannon(pointer){
+    if (this.tools.cannonMode === 'minigun') this.shootMinigunBurst(pointer); else this.shootSniper(pointer);
   }
 
   shootBullet(pointer, opts = {}) {
@@ -708,13 +1090,63 @@ class GameScene extends Phaser.Scene {
       normX = Math.cos(a);
       normY = Math.sin(a);
     }
-    const bullet = this.bullets.create(this.player.x, this.player.y, 'tex_bullet');
+  const bullet = this.bullets.create(this.player.x, this.player.y, 'tex_bullet');
   const speed = 600; // px per second
   bullet.setVelocity(normX * speed, normY * speed);
     bullet.setRotation(Math.atan2(normY, normX));
   // Destroy after 4 tiles distance (time = distance / speed)
   const lifeMs = (4 * TILE / speed) * 1000;
   this.time.delayedCall(lifeMs, () => { if (bullet.active) bullet.destroy(); });
+    // On each step, check collision with cannons by tile sampling (lightweight)
+    bullet._lastCheck = 0;
+    bullet.preUpdate = (t, dt)=>{
+      Phaser.Physics.Arcade.Sprite.prototype.preUpdate.call(bullet, t, dt);
+      bullet._lastCheck += dt; if (bullet._lastCheck < 30) return; bullet._lastCheck = 0;
+      const tx = Math.floor(bullet.x / TILE), ty = Math.floor(bullet.y / TILE);
+      const key = `${tx},${ty}`;
+      if (this.cannonTiles.has(key)) {
+        // Remove cannon and bullet
+        this.removeCannonAt(tx, ty);
+        bullet.destroy();
+        this.saveState();
+      }
+    };
+  }
+
+  // Spawn a bullet from (sx,sy) to (tx,ty). opts: { speed, lifeTiles, spread, ignoreCannonKey }
+  spawnBulletFrom(sx, sy, tx, ty, opts={}){
+    const dirX = tx - sx, dirY = ty - sy;
+    const dist = Math.hypot(dirX, dirY) || 1;
+    let nx = dirX / dist, ny = dirY / dist;
+    if (opts.spread && opts.spread > 0) {
+      const base = Math.atan2(ny, nx);
+      const jitter = (Math.random()*2 - 1) * opts.spread;
+      const a = base + jitter;
+      nx = Math.cos(a); ny = Math.sin(a);
+    }
+    const b = this.bullets.create(sx, sy, 'tex_bullet');
+    const speed = opts.speed || 600;
+    b.setVelocity(nx*speed, ny*speed);
+    b.setRotation(Math.atan2(ny, nx));
+    if (opts.ignoreCannonKey) b.setData('ignoreCannonKey', opts.ignoreCannonKey);
+    const lifeMs = ((opts.lifeTiles || 6) * TILE / speed) * 1000;
+    this.time.delayedCall(lifeMs, ()=>{ if (b.active) b.destroy(); });
+    // Also guard against cannon removal via tile-scan hook if present
+    b._lastCheck = 0;
+    const scene = this;
+    const origPreUpdate = Phaser.Physics.Arcade.Sprite.prototype.preUpdate;
+    b.preUpdate = function(t, dt){
+      origPreUpdate.call(this, t, dt);
+      this._lastCheck += dt; if (this._lastCheck < 30) return; this._lastCheck = 0;
+      const tx = Math.floor(this.x / TILE), ty = Math.floor(this.y / TILE);
+      const key = `${tx},${ty}`;
+      if (scene.cannonTiles.has(key) && this.getData('ignoreCannonKey') !== key) {
+        scene.removeCannonAt(tx, ty);
+        this.destroy();
+        scene.saveState();
+      }
+    };
+    return b;
   }
 
   onBulletHit(bullet, block) {
@@ -738,6 +1170,21 @@ class GameScene extends Phaser.Scene {
     this.tryFlowWaterFrom(tx, ty-1);
     bullet.destroy();
     this.saveState();
+  }
+
+  // Remove a cannon at specific tile, if exists
+  removeCannonAt(tx, ty){
+    const key = `${tx},${ty}`;
+    // remove from tiles set and positions
+    this.cannonTiles.delete(key);
+    this.cannonPositions = this.cannonPositions.filter(p=> !(p.tx===tx && p.ty===ty));
+    // destroy entity
+    const idx = this.cannons.findIndex(c=> c.tx===tx && c.ty===ty);
+    if (idx>=0){
+      const c = this.cannons[idx];
+      c.base?.destroy(); c.barrel?.destroy(); c.zone?.destroy();
+      this.cannons.splice(idx,1);
+    }
   }
 
   tryFlowWaterFrom(tx, ty){
@@ -862,15 +1309,17 @@ class GameScene extends Phaser.Scene {
     slots[3].textContent = `Kolikot: ${this.state.coins}`;
     slots[4].textContent = this.state.canFly ? 'Lento ✓' : '';
     // Show equipped tool
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', hook:'Koukku' };
-    slots[5].textContent = `Työkalu: ${toolNames[this.tools.equipped]}`;
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', hook:'Koukku', cloner:'Kloonaaja' };
+    const eq = this.tools.equipped;
+    const suffix = eq === 'cannon' ? ` (${this.tools.cannonMode==='minigun'?'Minigun':'Tarkka'})` : '';
+    slots[5].textContent = `Työkalu: ${toolNames[eq]}${suffix}`;
   }
 
   updateToolSelect(){
     const select = document.getElementById('toolSelect');
     if (!select) return;
     select.innerHTML = '';
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', hook:'Koukku' };
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', hook:'Koukku', cloner:'Kloonaaja' };
     for (const tool in this.tools.owned) {
       if (this.tools.owned[tool]) {
         const option = document.createElement('option');
@@ -930,6 +1379,12 @@ class GameScene extends Phaser.Scene {
     this.chunks.clear?.();
     // Preload chunks around 0
     this.ensureChunksAround(0);
+    // Re-spawn any saved cannons (after base terrain exists)
+    if (Array.isArray(this.cannonPositions)) {
+      for (const p of this.cannonPositions) {
+        if (typeof p.tx === 'number' && typeof p.ty === 'number') this.spawnCannonAt(p.tx, p.ty);
+      }
+    }
   }
 
   ensureChunksAround(centerX){
@@ -1156,6 +1611,33 @@ class GameScene extends Phaser.Scene {
     this.merchantPrompt = this.add.text(x, y-40, 'E: Kauppias', { fontFamily:'monospace', fontSize:'14px', color:'#fff', backgroundColor:'#0008' }).setPadding(4,2).setDepth(1000).setVisible(false);
   }
 
+  // Moped helpers
+  createMoped(){
+    const tx = 14; const ty = SURFACE_Y - 1;
+    const x = tx*TILE + TILE/2; const y = ty*TILE + TILE/2;
+    const s = this.add.image(x, y, 'tex_moped').setDepth(4);
+    this.moped.sprite = s; this.moped.pos = { x, y };
+    const z = this.add.zone(x, y, 80, 60);
+    this.physics.world.enable(z, Phaser.Physics.Arcade.STATIC_BODY);
+    this.physics.add.overlap(this.player, z, ()=>{
+      this.nearMoped = true;
+      if (!this.moped.prompt) this.moped.prompt = this.add.text(0,0,'F: Mopo', { fontFamily:'monospace', fontSize:'12px', color:'#fff', backgroundColor:'#0008' }).setPadding(4,2).setDepth(1000);
+      this.moped.prompt.setPosition(s.x, s.y - 38).setVisible(!this.moped.mounted);
+    }, null, this);
+  }
+  toggleMoped(){
+    this.moped.mounted = !this.moped.mounted;
+    if (this.moped.mounted) {
+      // Hide prompt and stash pos
+      this.moped.prompt?.setVisible(false);
+      this.moped.pos = { x: this.moped.sprite.x, y: this.moped.sprite.y };
+    } else {
+      // Drop moped at player feet
+      this.moped.pos = { x: this.player.x, y: this.player.y+10 };
+      this.moped.sprite.setPosition(this.moped.pos.x, this.moped.pos.y);
+    }
+  }
+
   openMerchant(){ document.getElementById('merchant')?.classList.remove('hidden'); }
   closeMerchant(){ document.getElementById('merchant')?.classList.add('hidden'); }
 
@@ -1173,7 +1655,7 @@ class GameScene extends Phaser.Scene {
   }
 
   saveState(){
-    const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit };
+  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions };
     try { localStorage.setItem('UAG_save', JSON.stringify(data)); } catch(e) {}
   }
 
@@ -1190,16 +1672,20 @@ class GameScene extends Phaser.Scene {
         this.inv.plank = d.inv.plank || 0;
         this.inv.stone = d.inv.stone || 0;
       }
-      if (d.worldDiff) {
+  if (d.worldDiff) {
         if (Array.isArray(d.worldDiff.removed)) this.worldDiff.removed = d.worldDiff.removed.slice(0, 20000);
         if (Array.isArray(d.worldDiff.placed)) this.worldDiff.placed = d.worldDiff.placed.slice(0, 20000);
       }
+  if (Array.isArray(d.cannons)) this.cannonPositions = d.cannons.slice(0, 2000);
   if (d.tools) this.tools = d.tools;
-  // Ensure pistol, minigun, knife & sniper exist for older saves
+  // Ensure pistol, cannon, minigun, knife & sniper exist for older saves
   if (!this.tools.owned?.pistol) this.tools.owned.pistol = true;
+  if (!this.tools.owned?.cannon) this.tools.owned.cannon = true;
   if (!this.tools.owned?.minigun) this.tools.owned.minigun = true;
   if (!this.tools.owned?.knife) this.tools.owned.knife = true;
   if (!this.tools.owned?.sniper) this.tools.owned.sniper = true;
+  if (!this.tools.owned?.cloner) this.tools.owned.cloner = true;
+  if (!this.tools.cannonMode) this.tools.cannonMode = 'minigun';
   if (!this.tools.equipped) this.tools.equipped = 'pistol';
       if (d.outfit) this.custom.outfit = d.outfit;
     } catch(e) {}
@@ -1300,7 +1786,7 @@ class GameScene extends Phaser.Scene {
     this.tools.equipped = tool; this.updateInventoryUI(); this.saveState();
   }
   cycleTool(){
-  const order = ['hand','wooden','stone','iron','pistol','minigun','knife','sniper','hook'];
+  const order = ['hand','wooden','stone','iron','pistol','cannon','minigun','knife','sniper','hook','cloner'];
   if (!this.tools.owned?.hook) this.tools.owned.hook = true;
     let idx = order.indexOf(this.tools.equipped);
     for (let i=1;i<=order.length;i++){
