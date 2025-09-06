@@ -49,7 +49,7 @@ class GameScene extends Phaser.Scene {
 
     // Tool system
     this.tools = {
-      owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, cannon: true, minigun: true, knife: true, sniper: true, hook: true, cloner: true },
+      owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, cannon: true, minigun: true, knife: true, sniper: true, hook: true, cloner: true, teleport: true, slimecloner: true },
       equipped: 'pistol',
       cannonMode: 'minigun' // 'minigun' | 'sniper'
     };
@@ -83,13 +83,20 @@ class GameScene extends Phaser.Scene {
   this.cloneList = [];
 
   // Moped state
-  this.moped = { sprite: null, zone: null, prompt: null, mounted: false, color: '#ff6a00', speedMult: 1.6, pos: null };
+  this.moped = { sprite: null, zone: null, prompt: null, mounted: false, color: '#ff6a00', decal: 'none', speedMult: 1.6, pos: null };
   this.nearMoped = false;
 
   // Placeable cannons state
   this.cannons = [];
   this.cannonTiles = new Set(); // keys "tx,ty" where cannons are placed
   this.cannonPositions = []; // persisted positions [{tx,ty}]
+  // Slime cloners (devices)
+  this.slimeClonerPositions = []; // persisted [{tx,ty}]
+  this.slimeCloners = new Map(); // key -> { tx,ty, image?, zone?, nextAt:number, count:number }
+  // Teleports
+  this.portalPositions = []; // persisted [{tx,ty,color}]
+  this.portals = new Map(); // key -> { color:string, sprite:Phaser.GameObjects.GameObject }
+  this.portal = { placeColor: 'blue', countdown: null, countdownKey: null, countdownText: null, cooldownUntil: 0 };
   }
 
   preload() {
@@ -212,12 +219,44 @@ class GameScene extends Phaser.Scene {
   g.fillStyle(0xffffff,1); g.fillCircle(6,6,6); g.lineStyle(2,0x444444,1); g.strokeCircle(6,6,6);
   g.generateTexture('tex_hook',12,12); g.clear();
 
-  // Moped texture (side view)
+  // Moped base (gray chassis + wheels), body color applied dynamically
   g.fillStyle(0x333333,1); g.fillRect(2,10,26,8);
   g.fillStyle(0x000000,1); g.fillCircle(8,20,6); g.fillCircle(22,20,6);
   g.lineStyle(2,0x111111,1); g.strokeCircle(8,20,6); g.strokeCircle(22,20,6);
-  g.fillStyle(0xff6a00,1); g.fillRect(8,6,14,8);
-  g.generateTexture('tex_moped',32,26); g.clear();
+  g.generateTexture('tex_moped_base',32,26); g.clear();
+  // Slime cloner device texture
+  g.fillStyle(0x2a2a2a,1); g.fillRoundedRect(4,6,TILE-8,TILE-12,6);
+  g.lineStyle(2,0x111111,1); g.strokeRoundedRect(4,6,TILE-8,TILE-12,6);
+  g.fillStyle(0x55ff77,1); g.fillCircle(TILE/2, TILE/2, 6);
+  g.lineStyle(2,0x228844,1); g.strokeCircle(TILE/2, TILE/2, 6);
+  g.generateTexture('tex_slimecloner', TILE, TILE); g.clear();
+  // Teleport textures (colored rings)
+  const makePortal = (name, color)=>{
+    g.clear();
+    g.lineStyle(4, color, 1);
+    g.strokeCircle(TILE/2, TILE/2, TILE*0.38);
+    g.lineStyle(2, color, 0.4);
+    g.strokeCircle(TILE/2, TILE/2, TILE*0.26);
+    g.fillStyle(0x000000, 0.2);
+    g.fillCircle(TILE/2, TILE/2, TILE*0.36);
+    g.generateTexture(name, TILE, TILE);
+  };
+  makePortal('tex_portal_blue', 0x4aa3ff);
+  makePortal('tex_portal_red', 0xff4a4a);
+  makePortal('tex_portal_green', 0x59d659);
+  makePortal('tex_portal_yellow', 0xffd34a);
+  // Decal icons
+  // skull
+  g.fillStyle(0xffffff,1); g.fillCircle(3,3,2.2); g.fillRect(1.2,4.5,3.6,2); g.fillStyle(0x000000,1); g.fillCircle(2.3,2.8,0.5); g.fillCircle(3.7,2.8,0.5);
+  g.generateTexture('tex_decal_skull',6,7); g.clear();
+  // pistol silhouette (simple L shape)
+  g.fillStyle(0xffffff,1); g.fillRect(0,2,6,2); g.fillRect(2,4,2,3);
+  g.generateTexture('tex_decal_pistol',6,7); g.clear();
+  // triangle
+  g.fillStyle(0xffffff,1); g.beginPath(); g.moveTo(3,0); g.lineTo(6,6); g.lineTo(0,6); g.closePath(); g.fillPath();
+  g.generateTexture('tex_decal_triangle',6,7); g.clear();
+  // square
+  g.fillStyle(0xffffff,1); g.fillRect(0,0,6,6); g.generateTexture('tex_decal_square',6,6); g.clear();
 
   // Cannon base and barrel textures (placeable)
   g.fillStyle(0x6e6e6e,1); g.fillRoundedRect(0,0,32,20,5); g.lineStyle(2,0x4a4a4a,1); g.strokeRoundedRect(0,0,32,20,5); g.generateTexture('tex_cannon_base',32,20); g.clear();
@@ -240,7 +279,13 @@ class GameScene extends Phaser.Scene {
     this.items = this.physics.add.group();
     this.birds = this.physics.add.group({ allowGravity: false });
     this.slimes = this.physics.add.group();
-    this.bullets = this.physics.add.group({ allowGravity: false });
+  this.bullets = this.physics.add.group({ allowGravity: false });
+  this.portalsGroup = this.physics.add.staticGroup();
+    this.physics.add.overlap(this.bullets, this.portalsGroup, (bullet, zone)=>{
+      try { bullet?.destroy(); } catch(e) {}
+      const tx = zone?.getData('tx'); const ty = zone?.getData('ty');
+      if (typeof tx === 'number' && typeof ty === 'number') this.removePortalAt(tx, ty);
+    });
     this.waters = this.add.group();
   this.clones = this.physics.add.group();
 
@@ -283,11 +328,15 @@ class GameScene extends Phaser.Scene {
       const isTouch = pointer.pointerType === 'touch';
       if (!isTouch && pointer.rightButtonDown()) {
         if (this.tools.equipped === 'cannon') this.placeCannon(pointer);
+        else if (this.tools.equipped === 'teleport') this.placePortal(pointer);
+        else if (this.tools.equipped === 'slimecloner') this.placeSlimeCloner(pointer);
         else if (this.tools.equipped === 'cloner') this.cycleCloneTarget();
         else this.placePlank(pointer);
       } else {
         if (isTouch && this.touchState.placeMode) {
           if (this.tools.equipped === 'cannon') this.placeCannon(pointer);
+          else if (this.tools.equipped === 'teleport') this.placePortal(pointer);
+          else if (this.tools.equipped === 'slimecloner') this.placeSlimeCloner(pointer);
           else if (this.tools.equipped === 'cloner') this.spawnClone(pointer);
           else this.placePlank(pointer);
         }
@@ -295,6 +344,10 @@ class GameScene extends Phaser.Scene {
           // Cannon fire when equipped
           if (this.tools.equipped === 'cannon') {
             this.fireCannon(pointer);
+          } else if (this.tools.equipped === 'teleport') {
+            this.removePortalAtPointer(pointer);
+          } else if (this.tools.equipped === 'slimecloner') {
+            this.removeSlimeClonerAtPointer(pointer);
           } else if (this.tools.equipped === 'cloner') {
             this.spawnClone(pointer);
           } else {
@@ -333,6 +386,7 @@ class GameScene extends Phaser.Scene {
     // Cannon mode toggle (when cannon equipped)
     this.input.keyboard.on('keydown-R', guard(()=>{
       if (this.tools.equipped === 'cannon') this.toggleCannonMode();
+      else if (this.tools.equipped === 'teleport') this.cyclePortalColor();
     }));
     // Space = vine toggle (shoot -> reel -> cancel)
     this.input.keyboard.on('keydown-SPACE', guard(()=>{
@@ -372,6 +426,8 @@ class GameScene extends Phaser.Scene {
     '\nVasen klikkaus = mainaa (myös alaspäin) tai ammu (pistoolilla)  |  Oikea klikkaus = aseta lankku' +
   '\nC = craftaa 3 puusta 1 lankku  |  E = kauppias  |  1-9/Q = työkalut' +
       '\nSpace = liaani  |  R = Tykki-tila (Minigun/Tarkka)' +
+  '\nTeleportti: oikea klikkaus asettaa (8 puuta). Vasen poistaa. R vaihtaa väriä. Mene porttiin: 1,2,3 -> siirto.' +
+  '\nLimaklooni: oikea asettaa laitteen, vasen poistaa. Tuottaa limoja ajan kanssa.' +
       '\nPunainen timantti -> Lento  |  Vesi: uida ylös/alas Ylöksellä/Space' +
       '\nVaro lintuja ja limoja!',
       { fontFamily:'monospace', fontSize:'14px', color:'#fff' })
@@ -647,6 +703,16 @@ class GameScene extends Phaser.Scene {
       }
       if (dist < 16) this.cancelVine();
     }
+
+    // Portal entry detection (tile under player's feet)
+    const ptx = Math.floor(this.player.x / TILE), pty = Math.floor(this.player.y / TILE);
+    const pkey = `${ptx},${pty}`;
+    const portal = this.portals.get(pkey);
+    if (portal) {
+      this.onEnterPortal(ptx, pty, portal.color || 'blue');
+    }
+  // Run slime cloner spawners
+  this.maybeRunSlimeCloners();
   }
 
   // Pause/Start helpers
@@ -794,6 +860,170 @@ class GameScene extends Phaser.Scene {
   // If there is water above this tile, let it flow down
   this.tryFlowWaterFrom(tx, ty-1);
     this.saveState();
+  }
+
+  // --- Teleport (portal) placement and logic ---
+  // --- Slime Cloner (device) ---
+  placeSlimeCloner(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    if (this.blocks.get(key)) { this.showToast('Paikka varattu'); return; }
+    if (!this.hasSolidBlockAt(tx, ty+1)) { this.showToast('Tarvitset lattian alle'); return; }
+    // Limit per chunk or total to avoid runaway
+    const MAX_TOTAL = 10;
+    if (this.slimeClonerPositions.length >= MAX_TOTAL) { this.showToast('Liikaa kloonauslaitteita'); return; }
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    const img = this.add.image(x,y,'tex_slimecloner').setDepth(4);
+    this.decor.add(img);
+    // Make a tiny overlap zone so bullets can destroy the device
+    const zone = this.add.zone(x, y, TILE*0.9, TILE*0.9);
+    this.physics.world.enable(zone, Phaser.Physics.Arcade.STATIC_BODY);
+    zone.setData('tx', tx); zone.setData('ty', ty); zone.setData('type','slimecloner');
+    this.physics.add.overlap(this.bullets, zone, (bullet, z)=>{ bullet.destroy(); this.removeSlimeClonerAt(z.getData('tx'), z.getData('ty')); this.saveState(); }, null, this);
+    if (this.currentChunk!=null) { this.chunks.get(this.currentChunk)?.decor.push(img); this.chunks.get(this.currentChunk)?.decor.push(zone); }
+    const entry = { tx, ty, image: img, zone, nextAt: this.time.now + 2500, count: 0 };
+    this.slimeCloners.set(key, entry);
+    this.slimeClonerPositions.push({ tx, ty });
+    this.saveState();
+  }
+
+  removeSlimeClonerAtPointer(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+  this.removeSlimeClonerAt(tx, ty);
+  this.saveState();
+  this.showToast('Limaklooni poistettu');
+  }
+
+  removeSlimeClonerAt(tx, ty){
+    const key = `${tx},${ty}`; const e = this.slimeCloners.get(key);
+    if (!e) return;
+    e.image?.destroy(); e.zone?.destroy?.();
+    this.slimeCloners.delete(key);
+    this.slimeClonerPositions = this.slimeClonerPositions.filter(p=> !(p.tx===tx && p.ty===ty));
+  }
+
+  maybeRunSlimeCloners(){
+    if (!this.slimeClonerPositions?.length) return;
+    const CAP_PER = 4; // per device
+    for (const pos of this.slimeClonerPositions){
+      const key = `${pos.tx},${pos.ty}`;
+      let e = this.slimeCloners.get(key);
+      if (!e || !e.image || !e.image.active) continue; // offloaded chunk or not spawned yet
+      if (!e.nextAt) e.nextAt = this.time.now + 2500;
+      if (this.time.now < e.nextAt) continue;
+      e.nextAt = this.time.now + Phaser.Math.Between(3000, 5500);
+      if (e.count >= CAP_PER) continue;
+      // spawn slime atop the device if free
+      const tx = pos.tx, ty = pos.ty - 1;
+      if (this.hasSolidBlockAt(tx, ty)) continue;
+      const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+      const sl = this.slimes.create(x, y, 'tex_slime');
+      sl.setBounce(0.1,0.0); sl.setCollideWorldBounds(true); sl.setVelocityX(Math.random()<0.5?-80:80); sl.body.setSize(24,16).setOffset(2,4);
+      this.physics.add.collider(sl, this.platforms);
+      // decrement counter when destroyed
+      sl.on('destroy', ()=>{ e.count = Math.max(0, e.count-1); });
+      e.count++;
+    }
+  }
+
+  // --- Teleport (portal) placement and logic ---
+  placePortal(pointer){
+    if (this.inv.wood < 8) { this.showToast('Tarvitset 8 puuta teleporttiin'); return; }
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    if (this.blocks.get(key)) { this.showToast('Paikka varattu'); return; }
+    if (!this.hasSolidBlockAt(tx, ty+1)) { this.showToast('Tarvitset lattian alle'); return; }
+  // Spawn static image; we'll detect overlap in update()
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    const color = this.portal.placeColor;
+  const tex = this.textureForPortal(color);
+  const img = this.add.image(x,y,tex).setDepth(4);
+  const zone = this.physics.add.staticImage(x,y,tex).setVisible(false);
+  zone.setData('type','portal'); zone.setData('tx',tx); zone.setData('ty',ty); zone.setData('color',color);
+  this.portalsGroup.add(zone);
+  this.decor.add(img);
+  if (this.currentChunk!=null) { this.chunks.get(this.currentChunk)?.decor.push(img); this.chunks.get(this.currentChunk)?.decor.push(zone); }
+  this.portals.set(key, { color, image: img, zone });
+    this.portalPositions.push({ tx, ty, color });
+    this.inv.wood -= 8; this.updateInventoryUI();
+    this.saveState();
+  }
+
+  textureForPortal(color){
+    switch(color){
+      case 'red': return 'tex_portal_red';
+      case 'green': return 'tex_portal_green';
+      case 'yellow': return 'tex_portal_yellow';
+      default: return 'tex_portal_blue';
+    }
+  }
+
+  cyclePortalColor(){
+    const order=['blue','red','green','yellow'];
+    const i = order.indexOf(this.portal.placeColor);
+    this.portal.placeColor = order[(i+1)%order.length];
+    this.showToast('Teleportin väri: ' + this.portal.placeColor);
+  }
+
+  removePortalAtPointer(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    const p = this.portals.get(key);
+    if (!p) return;
+    p.image?.destroy();
+    this.portals.delete(key);
+    this.portalPositions = this.portalPositions.filter(pp=>!(pp.tx===tx && pp.ty===ty));
+    this.saveState();
+  }
+
+  removePortalAt(tx, ty){
+    const key = `${tx},${ty}`;
+    const p = this.portals.get(key);
+    if (!p) return;
+    p.image?.destroy();
+    p.zone?.destroy?.();
+    this.portals.delete(key);
+    this.portalPositions = this.portalPositions.filter(pp=>!(pp.tx===tx && pp.ty===ty));
+    this.saveState();
+  }
+
+  onEnterPortal(tx,ty,color){
+    if (this.time.now < (this.portal.cooldownUntil||0)) return; // brief cooldown to avoid loops
+    const key = `${tx},${ty}`;
+    // Find other portal with same color; pick nearest to current to make pairs work naturally
+    let target=null, bestD2=Infinity;
+    for (const p of this.portalPositions){
+      if (p.color!==color) continue;
+      if (p.tx===tx && p.ty===ty) continue;
+      const dx = (p.tx - tx), dy = (p.ty - ty);
+      const d2 = dx*dx + dy*dy;
+      if (d2 < bestD2) { bestD2=d2; target=p; }
+    }
+    if (!target) return; // no pair yet
+    // Start countdown 1,2,3 then teleport
+    if (this.portal.countdownKey === key) return; // already counting for this one
+    this.portal.countdownKey = key;
+    const centerX = tx*TILE + TILE/2, centerY = ty*TILE + TILE/2;
+    if (!this.portal.countdownText) this.portal.countdownText = this.add.text(centerX, centerY-28, '', { fontFamily:'monospace', fontSize:'18px', color:'#fff', backgroundColor:'#0008' }).setOrigin(0.5).setDepth(1000);
+    const txt = this.portal.countdownText; txt.setPosition(centerX, centerY-28).setVisible(true);
+    const seq=['1','2','3'];
+    seq.forEach((t,i)=>{
+      this.time.delayedCall(i*1000, ()=>{ txt.setText(t); });
+    });
+    this.time.delayedCall(seq.length*1000, ()=>{
+      txt.setVisible(false); this.portal.countdownKey=null;
+      // Teleport player to target tile center, slightly above
+      this.player.x = target.tx*TILE + TILE/2;
+      this.player.y = target.ty*TILE + TILE/2 - 4;
+      this.player.body.stop();
+      // Cooldown to prevent instant back-teleport
+      this.portal.cooldownUntil = this.time.now + 800;
+      this.ensureChunksAround(this.player.x);
+    });
   }
 
   knifeStrike(pointer){
@@ -1309,7 +1539,7 @@ class GameScene extends Phaser.Scene {
     slots[3].textContent = `Kolikot: ${this.state.coins}`;
     slots[4].textContent = this.state.canFly ? 'Lento ✓' : '';
     // Show equipped tool
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', hook:'Koukku', cloner:'Kloonaaja' };
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni' };
     const eq = this.tools.equipped;
     const suffix = eq === 'cannon' ? ` (${this.tools.cannonMode==='minigun'?'Minigun':'Tarkka'})` : '';
     slots[5].textContent = `Työkalu: ${toolNames[eq]}${suffix}`;
@@ -1319,7 +1549,7 @@ class GameScene extends Phaser.Scene {
     const select = document.getElementById('toolSelect');
     if (!select) return;
     select.innerHTML = '';
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', hook:'Koukku', cloner:'Kloonaaja' };
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni' };
     for (const tool in this.tools.owned) {
       if (this.tools.owned[tool]) {
         const option = document.createElement('option');
@@ -1383,6 +1613,38 @@ class GameScene extends Phaser.Scene {
     if (Array.isArray(this.cannonPositions)) {
       for (const p of this.cannonPositions) {
         if (typeof p.tx === 'number' && typeof p.ty === 'number') this.spawnCannonAt(p.tx, p.ty);
+      }
+    }
+  // Re-spawn saved portals
+    if (Array.isArray(this.portalPositions)) {
+      for (const p of this.portalPositions) {
+        const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+        const tex = this.textureForPortal(p.color||'blue');
+  const img = this.add.image(x,y,tex).setDepth(4);
+  this.decor.add(img);
+  const zone = this.physics.add.staticImage(x,y,tex).setVisible(false);
+  zone.setData('type','portal'); zone.setData('tx',p.tx); zone.setData('ty',p.ty); zone.setData('color',p.color||'blue');
+  this.portalsGroup.add(zone);
+        const cx = Math.floor(p.tx / CHUNK_W);
+  this.chunks.get(cx)?.decor.push(img);
+  this.chunks.get(cx)?.decor.push(zone);
+  this.portals.set(`${p.tx},${p.ty}`, { color:p.color||'blue', image: img, zone });
+      }
+    }
+    // Re-spawn saved slime cloners
+    if (Array.isArray(this.slimeClonerPositions)) {
+      for (const p of this.slimeClonerPositions) {
+        const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+        const img = this.add.image(x,y,'tex_slimecloner').setDepth(4);
+        this.decor.add(img);
+        const zone = this.add.zone(x, y, TILE*0.9, TILE*0.9);
+        this.physics.world.enable(zone, Phaser.Physics.Arcade.STATIC_BODY);
+        zone.setData('type','slimecloner'); zone.setData('tx',p.tx); zone.setData('ty',p.ty);
+        this.physics.add.overlap(this.bullets, zone, (bullet, z)=>{ bullet.destroy(); this.removeSlimeClonerAt(z.getData('tx'), z.getData('ty')); this.saveState(); }, null, this);
+        const cx = Math.floor(p.tx / CHUNK_W);
+        this.chunks.get(cx)?.decor.push(img);
+        this.chunks.get(cx)?.decor.push(zone);
+        this.slimeCloners.set(`${p.tx},${p.ty}`, { tx:p.tx, ty:p.ty, image: img, zone, nextAt: this.time.now + 2500, count: 0 });
       }
     }
   }
@@ -1554,10 +1816,18 @@ class GameScene extends Phaser.Scene {
     for (const d of data.decor) {
       if (!d) continue;
       // try compute tile from position
-      const tx = Math.floor(d.x / TILE);
-      const ty = Math.floor(d.y / TILE);
+  const tx = Math.floor(d.x / TILE);
+  const ty = Math.floor(d.y / TILE);
       const k = `${tx},${ty}`;
       if (this.waterTiles.get(k) === d) this.waterTiles.delete(k);
+  // if this decor was a portal image, clear its handle so it can be re-created on load
+  const p = this.portals.get(k);
+  if (p && p.image === d) { p.image = null; }
+  if (p && p.zone === d) { p.zone = null; }
+    // if this decor belonged to a slime cloner, clear its handles
+    const sc = this.slimeCloners.get(k);
+    if (sc && sc.image === d) { sc.image = null; }
+    if (sc && sc.zone === d) { sc.zone = null; }
       d.destroy();
     }
     // Pickups
@@ -1593,6 +1863,49 @@ class GameScene extends Phaser.Scene {
         }
       }
     }
+
+  // Portals in this chunk
+    if (Array.isArray(this.portalPositions)) {
+      for (const p of this.portalPositions) {
+        if (p.tx>=startTx && p.tx<=endTx) {
+          const key = `${p.tx},${p.ty}`;
+          const existing = this.portals.get(key);
+          if (existing?.image && existing.image.active) continue;
+          const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+          const tex = this.textureForPortal(p.color||'blue');
+          const img = this.add.image(x,y,tex).setDepth(4);
+          this.decor.add(img);
+          const zone = this.physics.add.staticImage(x,y,tex).setVisible(false);
+          zone.setData('type','portal'); zone.setData('tx',p.tx); zone.setData('ty',p.ty); zone.setData('color',p.color||'blue');
+          this.portalsGroup.add(zone);
+          this.chunks.get(cx)?.decor.push(img);
+          this.chunks.get(cx)?.decor.push(zone);
+          if (existing) { existing.image = img; existing.zone = zone; existing.color = existing.color || (p.color||'blue'); }
+          else this.portals.set(key, { color:p.color||'blue', image: img, zone });
+        }
+      }
+    }
+    // Slime cloners in this chunk
+    if (Array.isArray(this.slimeClonerPositions)) {
+      for (const p of this.slimeClonerPositions) {
+        if (p.tx>=startTx && p.tx<=endTx) {
+          const key = `${p.tx},${p.ty}`;
+          const existing = this.slimeCloners.get(key);
+          if (existing?.image && existing.image.active) continue;
+          const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+          const img = this.add.image(x,y,'tex_slimecloner').setDepth(4);
+          this.decor.add(img);
+          const zone = this.add.zone(x, y, TILE*0.9, TILE*0.9);
+          this.physics.world.enable(zone, Phaser.Physics.Arcade.STATIC_BODY);
+          zone.setData('type','slimecloner'); zone.setData('tx',p.tx); zone.setData('ty',p.ty);
+          this.physics.add.overlap(this.bullets, zone, (bullet, z)=>{ bullet.destroy(); this.removeSlimeClonerAt(z.getData('tx'), z.getData('ty')); this.saveState(); }, null, this);
+          this.chunks.get(cx)?.decor.push(img);
+          this.chunks.get(cx)?.decor.push(zone);
+          if (existing) { existing.image = img; existing.zone = zone; }
+          else this.slimeCloners.set(key, { tx:p.tx, ty:p.ty, image: img, zone, nextAt: this.time.now + 2500, count: 0 });
+        }
+      }
+    }
   }
 
   // Merchant helpers
@@ -1615,7 +1928,9 @@ class GameScene extends Phaser.Scene {
   createMoped(){
     const tx = 14; const ty = SURFACE_Y - 1;
     const x = tx*TILE + TILE/2; const y = ty*TILE + TILE/2;
-    const s = this.add.image(x, y, 'tex_moped').setDepth(4);
+  this.updateMopedAppearance();
+  const s = this.add.image(x, y, 'tex_moped_dyn').setDepth(4);
+  s.setScale(1.6);
     this.moped.sprite = s; this.moped.pos = { x, y };
     const z = this.add.zone(x, y, 80, 60);
     this.physics.world.enable(z, Phaser.Physics.Arcade.STATIC_BODY);
@@ -1638,6 +1953,39 @@ class GameScene extends Phaser.Scene {
     }
   }
 
+  updateMopedAppearance(){
+    const key = 'tex_moped_dyn';
+    if (this.textures.exists(key)) this.textures.remove(key);
+    const g = this.add.graphics();
+    // draw base
+    g.fillStyle(0xffffff,1); g.fillRect(0,0,32,26); // clear bg
+    g.alpha = 1; g.fillStyle(0x000000,0);
+    g.generateTexture('__blank',1,1); g.clear();
+    // base image
+    const base = this.textures.get('tex_moped_base').getSourceImage();
+    const rt = this.add.renderTexture(0,0,32,26);
+    rt.draw(base,0,0);
+    // color body rectangle (matches body area 8..22 x 6..14)
+    const col = (typeof this.moped.color==='string' && this.moped.color.startsWith('#')) ? parseInt(this.moped.color.slice(1),16) : (this.moped.color||0xff6a00);
+    const cg = this.add.graphics(); cg.fillStyle(col,1); cg.fillRect(8,6,14,8); rt.draw(cg,0,0); cg.destroy();
+    // decal
+    let decalKey = null;
+    if (this.moped.decal === 'skull') decalKey = 'tex_decal_skull';
+    else if (this.moped.decal === 'pistol') decalKey = 'tex_decal_pistol';
+    else if (this.moped.decal === 'triangle') decalKey = 'tex_decal_triangle';
+    else if (this.moped.decal === 'square') decalKey = 'tex_decal_square';
+    if (decalKey) rt.draw(this.textures.get(decalKey).getSourceImage(), 12, 6);
+    // export
+    rt.saveTexture(key);
+    rt.destroy(); g.destroy();
+    // Refresh current sprite texture if exists
+    if (this.moped?.sprite) {
+      const sc = this.moped.sprite.scale || 1.6;
+      this.moped.sprite.setTexture(key);
+      this.moped.sprite.setScale(sc);
+    }
+  }
+
   openMerchant(){ document.getElementById('merchant')?.classList.remove('hidden'); }
   closeMerchant(){ document.getElementById('merchant')?.classList.add('hidden'); }
 
@@ -1655,7 +2003,7 @@ class GameScene extends Phaser.Scene {
   }
 
   saveState(){
-  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions };
+  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, moped: { color: this.moped.color, decal: this.moped.decal } };
     try { localStorage.setItem('UAG_save', JSON.stringify(data)); } catch(e) {}
   }
 
@@ -1677,6 +2025,12 @@ class GameScene extends Phaser.Scene {
         if (Array.isArray(d.worldDiff.placed)) this.worldDiff.placed = d.worldDiff.placed.slice(0, 20000);
       }
   if (Array.isArray(d.cannons)) this.cannonPositions = d.cannons.slice(0, 2000);
+  if (Array.isArray(d.portals)) this.portalPositions = d.portals.slice(0, 5000);
+  if (Array.isArray(d.slimeCloners)) this.slimeClonerPositions = d.slimeCloners.slice(0, 1000);
+  // Migration: convert legacy doors to portals (closed doors -> blue portals at same tile)
+  if (Array.isArray(d.doors)) {
+    this.portalPositions = (this.portalPositions||[]).concat(d.doors.slice(0,5000).map(x=>({ tx:x.tx, ty:x.ty, color:'blue' })));
+  }
   if (d.tools) this.tools = d.tools;
   // Ensure pistol, cannon, minigun, knife & sniper exist for older saves
   if (!this.tools.owned?.pistol) this.tools.owned.pistol = true;
@@ -1685,12 +2039,20 @@ class GameScene extends Phaser.Scene {
   if (!this.tools.owned?.knife) this.tools.owned.knife = true;
   if (!this.tools.owned?.sniper) this.tools.owned.sniper = true;
   if (!this.tools.owned?.cloner) this.tools.owned.cloner = true;
+  if (!this.tools.owned?.slimecloner) this.tools.owned.slimecloner = true;
+  // Tool migration: rename door -> teleport
+  if (this.tools.owned?.door) { delete this.tools.owned.door; this.tools.owned.teleport = true; }
+  if (!this.tools.owned?.teleport) this.tools.owned.teleport = true;
+  if (this.tools.equipped === 'door') this.tools.equipped = 'teleport';
   if (!this.tools.cannonMode) this.tools.cannonMode = 'minigun';
   if (!this.tools.equipped) this.tools.equipped = 'pistol';
-      if (d.outfit) this.custom.outfit = d.outfit;
+  if (d.outfit) this.custom.outfit = d.outfit;
+  if (d.moped) { if (d.moped.color) this.moped.color = d.moped.color; if (d.moped.decal) this.moped.decal = d.moped.decal; }
     } catch(e) {}
   // Update tool select after loading
   this.updateToolSelect();
+  // Update moped after load
+  this.updateMopedAppearance?.();
   }
 
   // Appearance settings load from UAG_settings
@@ -1703,7 +2065,9 @@ class GameScene extends Phaser.Scene {
       if (s.pantsColor) this.custom.pantsColor = s.pantsColor;
       if (typeof s.eyesGlow === 'boolean') this.custom.eyesGlow = s.eyesGlow;
       if (s.eyeColor) this.custom.eyeColor = s.eyeColor;
-      if (s.hairColor) this.custom.hairColor = s.hairColor;
+  if (s.hairColor) this.custom.hairColor = s.hairColor;
+  if (s.mopedColor) this.moped.color = s.mopedColor;
+  if (s.mopedDecal) this.moped.decal = s.mopedDecal;
     } catch(e) {}
   }
 
@@ -1786,7 +2150,7 @@ class GameScene extends Phaser.Scene {
     this.tools.equipped = tool; this.updateInventoryUI(); this.saveState();
   }
   cycleTool(){
-  const order = ['hand','wooden','stone','iron','pistol','cannon','minigun','knife','sniper','hook','cloner'];
+  const order = ['hand','wooden','stone','iron','pistol','cannon','minigun','knife','sniper','hook','cloner','teleport','slimecloner'];
   if (!this.tools.owned?.hook) this.tools.owned.hook = true;
     let idx = order.indexOf(this.tools.equipped);
     for (let i=1;i<=order.length;i++){
@@ -1794,6 +2158,8 @@ class GameScene extends Phaser.Scene {
       if (this.tools.owned[next]) { this.tools.equipped = next; break; }
     }
     this.updateInventoryUI(); this.saveState();
+  if (this.tools.equipped === 'teleport') this.showToast('Teleportti: oikea klikkaus asettaa (8 puuta). R vaihtaa väriä. Mene porttiin: 1,2,3 -> siirto.');
+  if (this.tools.equipped === 'slimecloner') this.showToast('Limaklooni: oikea asettaa laitteen, vasen poistaa. Tuottaa limoja ajan kanssa.');
   }
 
   // Small deterministic RNG for reproducible world
@@ -1908,6 +2274,8 @@ window.addEventListener('load', () => {
   const eyesGlow = document.getElementById('eyesGlow');
   const eyeColor = document.getElementById('eyeColor');
   const hairColor = document.getElementById('hairColor');
+  const mopedColor = document.getElementById('mopedColor');
+  const mopedDecal = document.getElementById('mopedDecal');
 
   function applySettings(){
     const settings = {
@@ -1919,7 +2287,9 @@ window.addEventListener('load', () => {
       pantsColor: pantsColor?.value,
       eyesGlow: !!eyesGlow?.checked,
       eyeColor: eyeColor?.value,
-      hairColor: hairColor?.value
+  hairColor: hairColor?.value,
+  mopedColor: mopedColor?.value || window.gameScene?.moped?.color,
+  mopedDecal: mopedDecal?.value || window.gameScene?.moped?.decal
     };
     try { localStorage.setItem('UAG_settings', JSON.stringify(settings)); } catch(e) {}
     if (window.gameScene && toggleFly) { window.gameScene.state.canFly = !!toggleFly.checked; window.gameScene.saveState(); window.gameScene.updateInventoryUI(); }
@@ -1932,6 +2302,9 @@ window.addEventListener('load', () => {
       if (eyeColor?.value) window.gameScene.custom.eyeColor = eyeColor.value;
       if (hairColor?.value) window.gameScene.custom.hairColor = hairColor.value;
       window.gameScene.updatePlayerAppearance();
+  if (mopedColor?.value) { window.gameScene.moped.color = mopedColor.value; }
+  if (mopedDecal?.value) { window.gameScene.moped.decal = mopedDecal.value; }
+  window.gameScene.updateMopedAppearance?.();
     }
   }
 
@@ -1949,6 +2322,8 @@ window.addEventListener('load', () => {
       if (eyesGlow && typeof s.eyesGlow === 'boolean') eyesGlow.checked = s.eyesGlow;
       if (eyeColor && typeof s.eyeColor === 'string') eyeColor.value = s.eyeColor;
       if (hairColor && typeof s.hairColor === 'string') hairColor.value = s.hairColor;
+  if (mopedColor && typeof s.mopedColor === 'string') mopedColor.value = s.mopedColor;
+  if (mopedDecal && typeof s.mopedDecal === 'string') mopedDecal.value = s.mopedDecal;
     }
   } catch(e) {}
 
@@ -1961,6 +2336,8 @@ window.addEventListener('load', () => {
   eyesGlow?.addEventListener('change', applySettings);
   eyeColor?.addEventListener('input', applySettings);
   hairColor?.addEventListener('input', applySettings);
+  mopedColor?.addEventListener('input', applySettings);
+  mopedDecal?.addEventListener('change', applySettings);
 
   // Initial apply
   applySettings();
