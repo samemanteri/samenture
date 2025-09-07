@@ -25,6 +25,7 @@ class GameScene extends Phaser.Scene {
   this.slimes = null; // enemies (ground)
   this.zombies = null; // night enemies (2 tiles tall)
   this.zombies = null; // night enemies
+  this.bosses = null;  // Mörkö bosses
     this.items = null;  // physics items to pick up
     this.invulnUntil = 0;
 
@@ -99,6 +100,7 @@ class GameScene extends Phaser.Scene {
   this.day = { period: 120000, start: 0, isNight: false, lastIsNight: false };
   this.darknessGfx = null;
   this._nextZombieSpawnAt = 0;
+  this._nextBossSpawnAt = 0;
 
   // Torches (light sources) prevent zombie spawns nearby
   this.torchPositions = [];
@@ -232,6 +234,16 @@ class GameScene extends Phaser.Scene {
   g.fillStyle(0x000000,1); g.fillRect(6,7,4,4); g.fillRect(zw-10,7,4,4);
   g.generateTexture('tex_zombie', zw, zh); g.clear();
 
+  // Mörkö Boss texture (4x4 tiles)
+  const bwT = TILE*4, bhT = TILE*4;
+  g.fillStyle(0x3b2a4f,1); g.fillRoundedRect(0,0,bwT,bhT,14);
+  g.lineStyle(6,0x221833,1); g.strokeRoundedRect(0,0,bwT,bhT,14);
+  // eyes + mouth
+  g.fillStyle(0xffffff,1); g.fillCircle(bwT*0.32, bhT*0.28, 14); g.fillCircle(bwT*0.68, bhT*0.28, 14);
+  g.fillStyle(0x000000,1); g.fillCircle(bwT*0.32, bhT*0.28, 7); g.fillCircle(bwT*0.68, bhT*0.28, 7);
+  g.fillStyle(0xff3355,1); g.fillRoundedRect(bwT*0.28, bhT*0.58, bwT*0.44, 26, 10);
+  g.generateTexture('tex_boss_morko', bwT, bhT); g.clear();
+
   // Cactus tile (one segment, stacks vertically)
   g.fillStyle(0x2FA05A, 1);
   g.fillRoundedRect(8, 2, TILE-16, TILE-4, 6);
@@ -331,6 +343,7 @@ class GameScene extends Phaser.Scene {
   this.birds = this.physics.add.group({ allowGravity: false });
   this.slimes = this.physics.add.group();
   this.zombies = this.physics.add.group();
+  this.bosses = this.physics.add.group();
   this.bullets = this.physics.add.group({ allowGravity: false });
   this.portalsGroup = this.physics.add.staticGroup();
     this.physics.add.overlap(this.bullets, this.portalsGroup, (bullet, zone)=>{
@@ -366,6 +379,7 @@ class GameScene extends Phaser.Scene {
   this.physics.add.overlap(this.player, this.birds, this.onBirdHit, null, this);
     this.physics.add.overlap(this.player, this.slimes, this.onSlimeHit, null, this);
   this.physics.add.overlap(this.player, this.zombies, (p,z)=>{ this._hitByEnemy(z); }, null, this);
+  this.physics.add.overlap(this.player, this.bosses, (p,b)=>{ this._hitByEnemy(b); }, null, this);
   this.physics.add.overlap(this.bullets, this.birds, (bullet, bird)=>{
       if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); bullet.destroy(); return; }
       if (bullet?.getData && bullet.getData('isWeb') && this.mode.current==='web') {
@@ -394,6 +408,16 @@ class GameScene extends Phaser.Scene {
         zombie.setVelocity(0,0); zombie._webbedUntil = this.time.now + 4000;
       } else {
         const x=zombie.x,y=zombie.y; zombie.destroy(); this.dropCoins(x,y,2);
+      }
+      bullet.destroy();
+    }, null, this);
+  // Boss hit handling: only minigun bullets and bazooka explosions can damage
+  this.physics.add.overlap(this.bullets, this.bosses, (bullet, boss)=>{
+      if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); bullet.destroy(); return; }
+      const eq = this.tools?.equipped;
+      const isMinigunBullet = (eq === 'minigun') && !bullet.getData('isWeb');
+      if (isMinigunBullet) {
+        this.damageBoss(boss, 1);
       }
       bullet.destroy();
     }, null, this);
@@ -654,7 +678,7 @@ class GameScene extends Phaser.Scene {
           if (!t._nextFireAt || this.time.now >= t._nextFireAt) {
             t._nextFireAt = this.time.now + 120; // minigun cadence
             const sx = t.x + Math.cos(ang)*18, sy = t.y + Math.sin(ang)*6;
-            this.spawnBulletFrom(sx, sy, best.x, best.y, { speed: 700, lifeTiles: 7, spread: 0.08, noBlockDamage: true });
+            this.spawnBulletFrom(sx, sy, best.x, best.y, { speed: 700, lifeTiles: 7, spread: 0.08, noBlockDamage: true, isMinigun: true });
           }
         }
       }
@@ -686,7 +710,7 @@ class GameScene extends Phaser.Scene {
             // Fire from barrel tip toward target
             const sx = c.barrel.x + Math.cos(angle)*18;
             const sy = c.barrel.y + Math.sin(angle)*18;
-            const opts = this.tools.cannonMode==='minigun' ? { speed: 650, lifeTiles: 6, spread: 0.09 } : { speed: 980, lifeTiles: 19, spread: 0 };
+            const opts = this.tools.cannonMode==='minigun' ? { speed: 650, lifeTiles: 6, spread: 0.09, isMinigun: true } : { speed: 980, lifeTiles: 19, spread: 0 };
             // Prevent self-destroy immediately: ignore cannon tile
             const k = `${c.tx},${c.ty}`;
             this.spawnBulletFrom(sx, sy, best.x, best.y, { ...opts, ignoreCannonKey: k });
@@ -816,6 +840,13 @@ class GameScene extends Phaser.Scene {
     if (centerChunk !== this.lastCenterChunk) {
       this.lastCenterChunk = centerChunk;
       this.ensureChunksAround(this.player.x);
+    }
+
+    // Periodic boss spawn (every ~40s). Spawn underground near player in a 4x4 empty cave space
+    if (!this._nextBossSpawnAt) this._nextBossSpawnAt = this.time.now + 40000;
+    if (this.time.now >= this._nextBossSpawnAt) {
+      this._nextBossSpawnAt = this.time.now + 40000;
+      this.trySpawnBossNearPlayer();
     }
 
     // Cactus contact damage (tick at most twice per second)
@@ -1430,7 +1461,7 @@ class GameScene extends Phaser.Scene {
     const shots = 5;
     for (let i=0;i<shots;i++){
       this.time.delayedCall(i*60, ()=>{
-        this.shootBullet(pointer, { spread: 0.10 });
+  this.shootBullet(pointer, { spread: 0.10, markMinigun: true });
       });
     }
   }
@@ -1524,6 +1555,7 @@ class GameScene extends Phaser.Scene {
     this.birds?.children?.iterate?.(b=>{ if (inBox(b)) b.destroy(); });
     this.slimes?.children?.iterate?.(s=>{ if (inBox(s)) { const ex=s.x, ey=s.y; s.destroy(); this.dropCoins(ex,ey,3); } });
     this.zombies?.children?.iterate?.(z=>{ if (inBox(z)) { const ex=z.x, ey=z.y; z.destroy(); this.dropCoins(ex,ey,2); } });
+  this.bosses?.children?.iterate?.(bs=>{ if (inBox(bs)) { this.damageBoss(bs, 2); } });
     this.clones?.children?.iterate?.(c=>{ if (inBox(c)) c.destroy(); });
 
     this.saveState();
@@ -1763,6 +1795,7 @@ class GameScene extends Phaser.Scene {
   if (this.mode.current === 'galactic') projKey = 'tex_laser';
   if (this.mode.current === 'web') projKey = 'tex_web';
   const bullet = this.bullets.create(this.player.x, this.player.y, projKey);
+  if (this.tools.equipped === 'minigun' || opts.markMinigun) bullet.setData('isMinigun', true);
   if (this.mode.current === 'web') bullet.setData('isWeb', true);
   const speed = 600; // px per second
   bullet.setVelocity(normX * speed, normY * speed);
@@ -1802,6 +1835,7 @@ class GameScene extends Phaser.Scene {
   if (this.mode.current === 'web') projKey = 'tex_web';
   const b = this.bullets.create(sx, sy, projKey);
   if (this.mode.current === 'web') b.setData('isWeb', true);
+  if (opts.isMinigun) b.setData('isMinigun', true);
     const speed = opts.speed || 600;
     b.setVelocity(nx*speed, ny*speed);
     b.setRotation(Math.atan2(ny, nx));
@@ -1917,6 +1951,13 @@ class GameScene extends Phaser.Scene {
       const jitterY = Phaser.Math.Between(-4, 4);
       this.dropCoin(x + jitterX, y + jitterY);
     }
+  }
+
+  spawnPickup(x, y, tex){
+    const p = this.pickups.create(x, y - 10, tex);
+    p.body.setAllowGravity(false);
+    // track if during chunk gen
+    if (this.currentChunk!=null) this.chunks.get(this.currentChunk)?.pickups.push(p);
   }
 
   dropWood(x,y){
@@ -2323,7 +2364,7 @@ class GameScene extends Phaser.Scene {
     // Pickups
     for (const p of data.pickups) p?.destroy();
     // Enemies
-    for (const e of data.enemies) e?.destroy();
+  for (const e of data.enemies) e?.destroy();
 
     this.chunks.delete(cx);
     this.loadedChunks.delete(cx);
@@ -2415,6 +2456,71 @@ class GameScene extends Phaser.Scene {
           }
         }
       }
+    }
+  }
+
+  // --- Mörkö boss helpers ---
+  trySpawnBossNearPlayer(){
+    // choose a chunk within +/-1 of center to reduce pop-in
+    const pcx = Math.floor((this.player.x / TILE) / CHUNK_W);
+    const candidates = [pcx-1, pcx, pcx+1].filter(cx=> this.loadedChunks.has(cx));
+    if (!candidates.length) return;
+    // try a few times to find a cave spot
+    for (let attempt=0; attempt<3; attempt++){
+      const cx = candidates[Math.floor(Math.random()*candidates.length)];
+      const spot = this.findCaveSpot(cx, 4, 4);
+      if (spot) { this.spawnBossAt(spot.tx, spot.ty); return; }
+    }
+  }
+
+  findCaveSpot(cx, wTiles, hTiles){
+    const startTx = cx*CHUNK_W; const endTx = startTx+CHUNK_W-1;
+    // search underground only
+    for (let tries=0; tries<80; tries++){
+      const tx0 = startTx + 2 + Math.floor(Math.random() * Math.max(1, CHUNK_W - wTiles - 4));
+      const ty0 = SURFACE_Y + 2 + Math.floor(Math.random() * Math.max(1, WORLD_TILES_Y - SURFACE_Y - hTiles - 2));
+      let free = true;
+      for (let ox=0; ox<wTiles && free; ox++){
+        for (let oy=0; oy<hTiles; oy++){
+          if (this.hasSolidBlockAt(tx0+ox, ty0+oy)) { free=false; break; }
+        }
+      }
+      if (free) return { tx: tx0, ty: ty0 };
+    }
+    return null;
+  }
+
+  spawnBossAt(tx, ty){
+    const x = tx*TILE + (TILE*2);
+    const y = ty*TILE + (TILE*2);
+    const s = this.bosses.create(x, y, 'tex_boss_morko');
+    s.setImmovable(true);
+    s.body.setAllowGravity(false);
+    s.setDepth(6);
+    // big hitbox covering 4x4 tiles
+    s.body.setSize(TILE*4-6, TILE*4-6).setOffset(3,3);
+    s._hp = 6; // 6 hearts
+    // add to chunk enemies for lifecycle
+    const cx = Math.floor(tx / CHUNK_W);
+    this.chunks.get(cx)?.enemies.push(s);
+    // small spawn flash
+    const gfx = this.add.graphics().setDepth(7);
+    gfx.fillStyle(0x8844ff,0.25); gfx.fillRect(x-TILE*2, y-TILE*2, TILE*4, TILE*4);
+    this.time.delayedCall(180,()=>gfx.destroy());
+  }
+
+  damageBoss(boss, amount){
+    if (!boss || !boss.active) return;
+    boss._hp = Math.max(0, (boss._hp||6) - amount);
+    // hit flash
+    boss.setTintFill(0xffffff);
+    this.time.delayedCall(60, ()=> boss.clearTint());
+    if (boss._hp <= 0) {
+      const x=boss.x, y=boss.y; boss.destroy();
+      // loot shower
+      this.dropCoins(x, y, 8);
+      // rare red gem
+      if (Math.random() < 0.25) this.spawnPickup(x, y, 'tex_red');
     }
   }
 
