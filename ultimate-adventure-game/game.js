@@ -21,8 +21,10 @@ class GameScene extends Phaser.Scene {
     this.pickups = null;   // coins/diamonds
     this.blocks = null; // colliding block sprites mapped by tile key
     this.decor = null;  // non-colliding visuals (leaves)
-    this.birds = null;  // enemies (air)
-    this.slimes = null; // enemies (ground)
+  this.birds = null;  // enemies (air)
+  this.slimes = null; // enemies (ground)
+  this.zombies = null; // night enemies (2 tiles tall)
+  this.zombies = null; // night enemies
     this.items = null;  // physics items to pick up
     this.invulnUntil = 0;
 
@@ -49,7 +51,7 @@ class GameScene extends Phaser.Scene {
 
     // Tool system
     this.tools = {
-      owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, cannon: true, minigun: true, knife: true, sniper: true, hook: true, cloner: true, teleport: true, slimecloner: true },
+  owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, cannon: true, minigun: true, knife: true, sniper: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true },
       equipped: 'pistol',
       cannonMode: 'minigun' // 'minigun' | 'sniper'
     };
@@ -85,6 +87,27 @@ class GameScene extends Phaser.Scene {
   // Moped state
   this.moped = { sprite: null, zone: null, prompt: null, mounted: false, color: '#ff6a00', decal: 'none', speedMult: 1.6, pos: null };
   this.nearMoped = false;
+
+  // Day/Night cycle and darkness overlay
+  this.day = { period: 120000, start: 0, isNight: false, lastIsNight: false };
+  this.darknessGfx = null;
+  this._nextZombieSpawnAt = 0;
+
+  // Torches (light sources) prevent zombie spawns nearby
+  this.torchPositions = [];
+  this.torches = new Map(); // key -> { image }
+
+  // Day/Night cycle and darkness overlay
+  this.day = { period: 120000, start: 0, isNight: false, lastIsNight: false }; // 120s per full day
+  this.darknessGfx = null;
+  this._nextZombieSpawnAt = 0;
+
+  // Torches (light sources) to block zombie spawns
+  this.torchPositions = []; // persisted [{tx,ty}]
+  this.torches = new Map(); // key -> { image }
+  // Death banner handle
+  this.deathText = null;
+  this.deathDom = null;
 
   // Placeable cannons state
   this.cannons = [];
@@ -191,6 +214,19 @@ class GameScene extends Phaser.Scene {
     g.fillStyle(0xffffff,1); g.fillCircle(8,8,3); g.fillCircle(20,8,3); g.fillStyle(0x000000,1); g.fillCircle(8,8,1.5); g.fillCircle(20,8,1.5);
     g.generateTexture('tex_slime', sw, sh); g.clear();
 
+  // Torch texture (stick + flame)
+  g.fillStyle(0x8b5a2b,1); g.fillRect(TILE/2-2, TILE-18, 4, 16);
+  g.fillStyle(0xffcc33,1); g.fillCircle(TILE/2, TILE-20, 6); g.fillStyle(0xff6600,1); g.fillCircle(TILE/2-2, TILE-22, 3);
+  g.lineStyle(2,0x6b3a1b,1); g.strokeRect(TILE/2-2, TILE-18, 4, 16);
+  g.generateTexture('tex_torch', TILE, TILE); g.clear();
+
+  // Zombie texture (2-tile tall rectangle with face)
+  const zw = Math.floor(TILE*0.7), zh = TILE*2 - 2;
+  g.fillStyle(0x557755,1); g.fillRect(0,0,zw,zh); g.lineStyle(2,0x2a442a,1); g.strokeRect(0,0,zw,zh);
+  g.fillStyle(0x88ff88,1); g.fillRect(3,3,zw-6,12);
+  g.fillStyle(0x000000,1); g.fillRect(6,7,4,4); g.fillRect(zw-10,7,4,4);
+  g.generateTexture('tex_zombie', zw, zh); g.clear();
+
   // Cactus tile (one segment, stacks vertically)
   g.fillStyle(0x2FA05A, 1);
   g.fillRoundedRect(8, 2, TILE-16, TILE-4, 6);
@@ -277,8 +313,9 @@ class GameScene extends Phaser.Scene {
     // Groups
     this.pickups = this.physics.add.group();
     this.items = this.physics.add.group();
-    this.birds = this.physics.add.group({ allowGravity: false });
-    this.slimes = this.physics.add.group();
+  this.birds = this.physics.add.group({ allowGravity: false });
+  this.slimes = this.physics.add.group();
+  this.zombies = this.physics.add.group();
   this.bullets = this.physics.add.group({ allowGravity: false });
   this.portalsGroup = this.physics.add.staticGroup();
     this.physics.add.overlap(this.bullets, this.portalsGroup, (bullet, zone)=>{
@@ -311,11 +348,19 @@ class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.pickups, this.onPickup, null, this);
     this.physics.add.overlap(this.player, this.waters, this.onEnterWater, null, this);
     this.physics.add.overlap(this.player, this.items, this.onItemPickup, null, this);
-    this.physics.add.overlap(this.player, this.birds, this.onBirdHit, null, this);
+  this.physics.add.overlap(this.player, this.birds, this.onBirdHit, null, this);
     this.physics.add.overlap(this.player, this.slimes, this.onSlimeHit, null, this);
+  this.physics.add.overlap(this.player, this.zombies, (p,z)=>{ this._hitByEnemy(z); }, null, this);
   this.physics.add.overlap(this.bullets, this.birds, (bullet, bird)=>{ bird.destroy(); bullet.destroy(); }, null, this);
-  this.physics.add.overlap(this.bullets, this.slimes, (bullet, slime)=>{ slime.destroy(); bullet.destroy(); }, null, this);
+  this.physics.add.overlap(this.bullets, this.slimes, (bullet, slime)=>{
+      const x = slime.x, y = slime.y;
+      slime.destroy();
+      // Drop 3 coins when a slime dies
+      this.dropCoins(x, y, 3);
+      bullet.destroy();
+    }, null, this);
   this.physics.add.overlap(this.bullets, this.clones, (bullet, clone)=>{ this.removeClone(clone); bullet.destroy(); }, null, this);
+  this.physics.add.overlap(this.bullets, this.zombies, (bullet, zombie)=>{ const x=zombie.x,y=zombie.y; zombie.destroy(); this.dropCoins(x,y,2); bullet.destroy(); }, null, this);
 
     // Input
     this.cursors = this.input.keyboard.createCursorKeys();
@@ -330,6 +375,7 @@ class GameScene extends Phaser.Scene {
         if (this.tools.equipped === 'cannon') this.placeCannon(pointer);
         else if (this.tools.equipped === 'teleport') this.placePortal(pointer);
         else if (this.tools.equipped === 'slimecloner') this.placeSlimeCloner(pointer);
+        else if (this.tools.equipped === 'torch') this.placeTorch(pointer);
         else if (this.tools.equipped === 'cloner') this.cycleCloneTarget();
         else this.placePlank(pointer);
       } else {
@@ -337,6 +383,7 @@ class GameScene extends Phaser.Scene {
           if (this.tools.equipped === 'cannon') this.placeCannon(pointer);
           else if (this.tools.equipped === 'teleport') this.placePortal(pointer);
           else if (this.tools.equipped === 'slimecloner') this.placeSlimeCloner(pointer);
+          else if (this.tools.equipped === 'torch') this.placeTorch(pointer);
           else if (this.tools.equipped === 'cloner') this.spawnClone(pointer);
           else this.placePlank(pointer);
         }
@@ -348,6 +395,8 @@ class GameScene extends Phaser.Scene {
             this.removePortalAtPointer(pointer);
           } else if (this.tools.equipped === 'slimecloner') {
             this.removeSlimeClonerAtPointer(pointer);
+          } else if (this.tools.equipped === 'torch') {
+            this.removeTorchAtPointer(pointer);
           } else if (this.tools.equipped === 'cloner') {
             this.spawnClone(pointer);
           } else {
@@ -388,6 +437,8 @@ class GameScene extends Phaser.Scene {
       if (this.tools.equipped === 'cannon') this.toggleCannonMode();
       else if (this.tools.equipped === 'teleport') this.cyclePortalColor();
     }));
+    // Debug: show death banner with B
+    this.input.keyboard.on('keydown-B', guard(()=> this.showDeathBanner()));
     // Space = vine toggle (shoot -> reel -> cancel)
     this.input.keyboard.on('keydown-SPACE', guard(()=>{
       const p = this.input.activePointer;
@@ -420,7 +471,7 @@ class GameScene extends Phaser.Scene {
   // Place moped near spawn
   this.createMoped();
 
-    // Instructions
+  // Instructions
     this.add.text(14,14,
     'Ohjeet:\nVasen/Oikea tai A/D = liiku  |  Ylös/Space = hyppy' +
     '\nVasen klikkaus = mainaa (myös alaspäin) tai ammu (pistoolilla)  |  Oikea klikkaus = aseta lankku' +
@@ -429,7 +480,7 @@ class GameScene extends Phaser.Scene {
   '\nTeleportti: oikea klikkaus asettaa (8 puuta). Vasen poistaa. R vaihtaa väriä. Mene porttiin: 1,2,3 -> siirto.' +
   '\nLimaklooni: oikea asettaa laitteen, vasen poistaa. Tuottaa limoja ajan kanssa.' +
       '\nPunainen timantti -> Lento  |  Vesi: uida ylös/alas Ylöksellä/Space' +
-      '\nVaro lintuja ja limoja!',
+  '\nVaro lintuja ja limoja!  |  Yö: pimeää ja zombeja. Soihdut estävät spawnit.',
       { fontFamily:'monospace', fontSize:'14px', color:'#fff' })
       .setScrollFactor(0).setDepth(1000).setShadow(2,2,'#000',3);
 
@@ -458,7 +509,10 @@ class GameScene extends Phaser.Scene {
     document.getElementById('btnRestart')?.addEventListener('click', ()=> this.restartGame());
     document.getElementById('btnPauseSettings')?.addEventListener('click', ()=> document.getElementById('settingsMenu')?.classList.toggle('hidden'));
 
-    // Initially paused until started
+  // Darkness overlay
+  this.darknessGfx = this.add.graphics().setScrollFactor(0).setDepth(900);
+
+  // Initially paused until started
     this.pauseGame(true);
   }
 
@@ -704,6 +758,84 @@ class GameScene extends Phaser.Scene {
       if (dist < 16) this.cancelVine();
     }
 
+    // Day/Night cycle and darkness overlay
+    if (!this.day.start) this.day.start = this.time.now;
+    const t = (this.time.now - this.day.start) % this.day.period;
+    const phase = t / this.day.period; // 0..1
+    // Night if outside [0.25, 0.75] (dawn/day/dusk simple curve)
+    const isNight = (phase < 0.25) || (phase > 0.75);
+    this.day.isNight = isNight;
+    // Darkness alpha ease in/out
+    const nightAmount = isNight ? (phase < 0.25 ? (0.25 - phase) / 0.25 : (phase - 0.75) / 0.25) : 0;
+    const alpha = Math.min(0.72, 0.72 * nightAmount);
+    this.darknessGfx.clear();
+    const cam = this.cameras.main;
+    if (alpha > 0.01) {
+      // dark overlay
+      this.darknessGfx.setBlendMode(Phaser.BlendModes.NORMAL);
+      this.darknessGfx.fillStyle(0x000000, alpha);
+      this.darknessGfx.fillRect(0, 0, cam.width, cam.height);
+      // torch light holes
+      if (this.torchPositions?.length) {
+        this.darknessGfx.setBlendMode(Phaser.BlendModes.ERASE);
+        const rad = 140;
+        for (const p of this.torchPositions) {
+          const wx = p.tx*TILE + TILE/2;
+          const wy = p.ty*TILE + TILE/2;
+          const sx = wx - cam.scrollX;
+          const sy = wy - cam.scrollY;
+          if (sx < -rad || sy < -rad || sx > cam.width+rad || sy > cam.height+rad) continue;
+          this.darknessGfx.fillStyle(0xffffff, 1);
+          this.darknessGfx.fillCircle(sx, sy, rad);
+        }
+        this.darknessGfx.setBlendMode(Phaser.BlendModes.NORMAL);
+      }
+    }
+
+  // Spawn zombies at night in dark areas, not near torches
+    if (this.day.isNight && this.time.now >= this._nextZombieSpawnAt) {
+      this._nextZombieSpawnAt = this.time.now + 900; // every 0.9s check
+      const maxZ = 12;
+      const existing = this.zombies?.countActive(true) || 0;
+      if (existing < maxZ) {
+        // pick a random ground tile near the player within 12 tiles horizontally
+        const ptx = Math.floor(this.player.x / TILE);
+        const range = 12;
+        const tx = ptx + Phaser.Math.Between(-range, range);
+        const ty = SURFACE_Y - 2; // near surface wandering
+        // require solid ground below and empty spawn space (2 tiles tall)
+        if (this.hasSolidBlockAt(tx, SURFACE_Y) && !this.hasSolidBlockAt(tx, SURFACE_Y-1) && !this.hasSolidBlockAt(tx, SURFACE_Y-2)){
+          // block if torch nearby within R tiles
+          const R = 6; let nearTorch = false;
+          for (const p of this.torchPositions){ if (Math.abs(p.tx - tx) <= R && Math.abs(p.ty - ty) <= R) { nearTorch = true; break; } }
+          if (!nearTorch) {
+            const x = tx*TILE + TILE/2, y = (SURFACE_Y-2)*TILE - 6;
+            const z = this.zombies.create(x, y, 'tex_zombie');
+            z.body.setAllowGravity(true);
+            z.setCollideWorldBounds(true);
+            z.body.setSize(Math.floor(TILE*0.6), TILE*1.8).setOffset(2,2);
+            this.physics.add.collider(z, this.platforms);
+          }
+        }
+      }
+    }
+
+    // Daytime: remove all zombies (no drops)
+    if (!this.day.isNight && this.zombies) {
+      this.zombies.children.iterate((z)=>{ if (z && z.active) z.destroy(); });
+    }
+
+    // Zombie AI: shuffle towards player and hop at ledges
+    if (this.zombies) {
+      this.zombies.children.iterate((z)=>{
+        if (!z || !z.body) return;
+        const dx = this.player.x - z.x;
+        const dir = Math.sign(dx) || 1;
+        z.setVelocityX(dir * 80);
+        if ((z.body.blocked.down || z.body.touching.down) && Math.random() < 0.01) z.setVelocityY(-340);
+      });
+    }
+
     // Portal entry detection (tile under player's feet)
     const ptx = Math.floor(this.player.x / TILE), pty = Math.floor(this.player.y / TILE);
     const pkey = `${ptx},${pty}`;
@@ -863,6 +995,37 @@ class GameScene extends Phaser.Scene {
   }
 
   // --- Teleport (portal) placement and logic ---
+  // --- Torch placement (prevents zombie spawns nearby) ---
+  placeTorch(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    if (this.blocks.get(key)) { this.showToast('Paikka varattu'); return; }
+    if (!this.hasSolidBlockAt(tx, ty+1)) { this.showToast('Tarvitset lattian alle'); return; }
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    const img = this.add.image(x,y,'tex_torch').setDepth(4);
+  this.decor.add(img);
+  const cx = Math.floor(tx / CHUNK_W);
+  this.chunks.get(cx)?.decor.push(img);
+    this.torches.set(key, { image: img });
+    this.torchPositions.push({ tx, ty });
+    this.saveState();
+  }
+
+  removeTorchAtPointer(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    this.removeTorchAt(tx, ty);
+    this.saveState();
+  }
+  removeTorchAt(tx, ty){
+    const key = `${tx},${ty}`;
+    const t = this.torches.get(key);
+    t?.image?.destroy();
+    this.torches.delete(key);
+    this.torchPositions = this.torchPositions.filter(p=> !(p.tx===tx && p.ty===ty));
+  }
+
   // --- Slime Cloner (device) ---
   placeSlimeCloner(pointer){
     const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
@@ -1040,7 +1203,10 @@ class GameScene extends Phaser.Scene {
       if (!sl || !sl.active) return;
       const dx = sl.x - px, dy = sl.y - py;
       if (dx*dx + dy*dy <= reach*reach) {
+        const x = sl.x, y = sl.y;
         sl.destroy();
+        // Drop 3 coins on slime kill with knife
+        this.dropCoins(x, y, 3);
       }
     });
     // Kill clones too (friendly-fire to allow removal)
@@ -1445,6 +1611,15 @@ class GameScene extends Phaser.Scene {
     if (this.currentChunk!=null) this.chunks.get(this.currentChunk)?.pickups.push(coin);
   }
 
+  // Spawn multiple coins with slight spread
+  dropCoins(x, y, n=1){
+    for (let i=0;i<n;i++){
+      const jitterX = Phaser.Math.Between(-8, 8);
+      const jitterY = Phaser.Math.Between(-4, 4);
+      this.dropCoin(x + jitterX, y + jitterY);
+    }
+  }
+
   dropWood(x,y){
     const w = this.items.create(x, y-6, 'tex_woodItem');
     w.setData('item','wood');
@@ -1539,7 +1714,7 @@ class GameScene extends Phaser.Scene {
     slots[3].textContent = `Kolikot: ${this.state.coins}`;
     slots[4].textContent = this.state.canFly ? 'Lento ✓' : '';
     // Show equipped tool
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni' };
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu' };
     const eq = this.tools.equipped;
     const suffix = eq === 'cannon' ? ` (${this.tools.cannonMode==='minigun'?'Minigun':'Tarkka'})` : '';
     slots[5].textContent = `Työkalu: ${toolNames[eq]}${suffix}`;
@@ -1549,7 +1724,7 @@ class GameScene extends Phaser.Scene {
     const select = document.getElementById('toolSelect');
     if (!select) return;
     select.innerHTML = '';
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni' };
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu' };
     for (const tool in this.tools.owned) {
       if (this.tools.owned[tool]) {
         const option = document.createElement('option');
@@ -1645,6 +1820,17 @@ class GameScene extends Phaser.Scene {
         this.chunks.get(cx)?.decor.push(img);
         this.chunks.get(cx)?.decor.push(zone);
         this.slimeCloners.set(`${p.tx},${p.ty}`, { tx:p.tx, ty:p.ty, image: img, zone, nextAt: this.time.now + 2500, count: 0 });
+      }
+    }
+    // Re-spawn saved torches
+    if (Array.isArray(this.torchPositions)) {
+      for (const p of this.torchPositions) {
+        const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+        const img = this.add.image(x,y,'tex_torch').setDepth(4);
+        this.decor.add(img);
+        const cx = Math.floor(p.tx / CHUNK_W);
+        this.chunks.get(cx)?.decor.push(img);
+        this.torches.set(`${p.tx},${p.ty}`, { image: img });
       }
     }
   }
@@ -1812,7 +1998,7 @@ class GameScene extends Phaser.Scene {
       const spr = this.blocks.get(key);
   if (spr) { if (spr.getData('type')==='cactus') this.cactusTiles.delete(key); spr.destroy(); this.blocks.delete(key); }
     }
-    // Decor (also remove from water registry if water)
+  // Decor (also remove from water registry if water)
     for (const d of data.decor) {
       if (!d) continue;
       // try compute tile from position
@@ -1828,6 +2014,9 @@ class GameScene extends Phaser.Scene {
     const sc = this.slimeCloners.get(k);
     if (sc && sc.image === d) { sc.image = null; }
     if (sc && sc.zone === d) { sc.zone = null; }
+  // if this decor was a torch, clear handle
+  const tt = this.torches.get(k);
+  if (tt && tt.image === d) { tt.image = null; }
       d.destroy();
     }
     // Pickups
@@ -1903,6 +2092,23 @@ class GameScene extends Phaser.Scene {
           this.chunks.get(cx)?.decor.push(zone);
           if (existing) { existing.image = img; existing.zone = zone; }
           else this.slimeCloners.set(key, { tx:p.tx, ty:p.ty, image: img, zone, nextAt: this.time.now + 2500, count: 0 });
+        }
+      }
+    }
+
+    // Torches in this chunk
+    if (Array.isArray(this.torchPositions)) {
+      for (const p of this.torchPositions) {
+        if (p.tx>=startTx && p.tx<=endTx) {
+          const key = `${p.tx},${p.ty}`;
+          const existing = this.torches.get(key);
+          if (existing?.image && existing.image.active) continue;
+          const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+          const img = this.add.image(x,y,'tex_torch').setDepth(4);
+          this.decor.add(img);
+          this.chunks.get(cx)?.decor.push(img);
+          if (existing) { existing.image = img; }
+          else this.torches.set(key, { image: img });
         }
       }
     }
@@ -1998,12 +2204,106 @@ class GameScene extends Phaser.Scene {
       this.state.coins = Math.max(0, this.state.coins - 5);
       this.player.setPosition(this.player.x,100); this.player.setVelocity(0,0);
       this.showToast('Kuolit! -5 kolikkoa');
+      this.showDeathBanner();
       this.updateUI(); this.saveState();
     }
   }
 
+  showDeathBanner(){
+    const cam = this.cameras.main;
+    const cx = cam.width/2, cy = cam.height/2;
+    // Camera effects
+    cam.flash(220, 255, 32, 32); // reddish flash
+    cam.shake(250, 0.01);
+
+    // Ensure container and graphics
+    if (!this.deathContainer) {
+      this.deathContainer = this.add.container(0,0).setScrollFactor(0).setDepth(2000).setVisible(false);
+      this.deathGfx = this.add.graphics().setScrollFactor(0).setDepth(2000);
+      this.deathText = this.add.text(0,0,'KUOLIT!', { fontFamily:'monospace', fontSize:'48px', color:'#ffffff' })
+        .setOrigin(0.5)
+        .setStroke('#000000', 8)
+        .setShadow(4,4,'#000000', 8, true, true);
+      this.deathContainer.add([this.deathGfx, this.deathText]);
+    }
+
+    // Draw vignette overlay
+    this.deathGfx.clear();
+    this.deathGfx.fillStyle(0x550000, 0.45);
+    this.deathGfx.fillRect(0, 0, cam.width, cam.height);
+    this.deathGfx.lineStyle(6, 0xaa2222, 0.35);
+    for (let r=60; r<=Math.max(cam.width, cam.height); r+=120){
+      this.deathGfx.strokeCircle(cx, cy, r);
+    }
+
+    // Place text and animate
+    this.deathText.setPosition(cx, cy).setScale(0.6).setAngle(0);
+    this.deathContainer.setVisible(true);
+    this.tweens.add({ targets: this.deathText, scale: { from: 0.6, to: 1.3 }, angle: { from: -4, to: 4 }, yoyo: true, repeat: 1, duration: 220, ease: 'Quad.easeOut' });
+
+    // Particle burst (use coin texture tinted red)
+    const pm = this.add.particles('tex_coin');
+    const emitter = pm.createEmitter({
+      x: cx, y: cy,
+      speed: { min: 120, max: 320 },
+      angle: { min: 0, max: 360 },
+      gravityY: 400,
+      lifespan: 900,
+      quantity: 0,
+      scale: { start: 1.0, end: 0 },
+      alpha: { start: 1, end: 0 },
+      tint: 0xff4444,
+      blendMode: 'ADD'
+    });
+    emitter.explode(28, cx, cy);
+  this.time.delayedCall(1400, ()=>{ pm.destroy(); });
+
+    // Hide FX after delay
+  this.time.delayedCall(1600, ()=>{
+      this.deathContainer?.setVisible(false);
+      this.deathGfx?.clear();
+    });
+
+    // DOM overlay (backup, with higher z-index)
+    if (!this.deathDom) {
+      const el = document.createElement('div');
+      el.id = 'deathBanner';
+      el.textContent = 'KUOLIT!';
+      el.style.position = 'absolute';
+      el.style.left = '50%';
+      el.style.top = '50%';
+      el.style.transform = 'translate(-50%, -50%)';
+      el.style.zIndex = '2147483647';
+      el.style.padding = '12px 16px';
+      el.style.borderRadius = '8px';
+      el.style.fontFamily = 'monospace';
+      el.style.fontSize = '40px';
+      el.style.color = '#fff';
+      el.style.background = 'linear-gradient(135deg, rgba(200,0,0,0.85), rgba(120,0,0,0.85))';
+      el.style.boxShadow = '0 6px 24px rgba(0,0,0,0.6)';
+      el.style.pointerEvents = 'none';
+      el.style.opacity = '0';
+      el.style.transition = 'opacity 140ms ease-in-out';
+      const parent = document.getElementById('gameContainer') || document.body;
+      // Ensure parent is stacking context top
+      if (parent === document.getElementById('gameContainer')) {
+        parent.style.position = parent.style.position || 'relative';
+      }
+      parent.appendChild(el);
+      this.deathDom = el;
+    }
+    this.deathDom.style.display = 'block';
+    try { console.log('DeathBanner: show'); } catch(e) {}
+    setTimeout(()=>{ if (this.deathDom) this.deathDom.style.opacity = '1'; }, 0);
+    setTimeout(()=>{
+      if (!this.deathDom) return;
+      this.deathDom.style.opacity = '0';
+      setTimeout(()=>{ if (this.deathDom) this.deathDom.style.display = 'none'; }, 180);
+  }, 1100);
+  }
+
   saveState(){
-  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, moped: { color: this.moped.color, decal: this.moped.decal } };
+  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, torches: this.torchPositions, moped: { color: this.moped.color, decal: this.moped.decal } };
     try { localStorage.setItem('UAG_save', JSON.stringify(data)); } catch(e) {}
   }
 
@@ -2027,6 +2327,7 @@ class GameScene extends Phaser.Scene {
   if (Array.isArray(d.cannons)) this.cannonPositions = d.cannons.slice(0, 2000);
   if (Array.isArray(d.portals)) this.portalPositions = d.portals.slice(0, 5000);
   if (Array.isArray(d.slimeCloners)) this.slimeClonerPositions = d.slimeCloners.slice(0, 1000);
+  if (Array.isArray(d.torches)) this.torchPositions = d.torches.slice(0, 3000);
   // Migration: convert legacy doors to portals (closed doors -> blue portals at same tile)
   if (Array.isArray(d.doors)) {
     this.portalPositions = (this.portalPositions||[]).concat(d.doors.slice(0,5000).map(x=>({ tx:x.tx, ty:x.ty, color:'blue' })));
@@ -2040,6 +2341,7 @@ class GameScene extends Phaser.Scene {
   if (!this.tools.owned?.sniper) this.tools.owned.sniper = true;
   if (!this.tools.owned?.cloner) this.tools.owned.cloner = true;
   if (!this.tools.owned?.slimecloner) this.tools.owned.slimecloner = true;
+  if (!this.tools.owned?.torch) this.tools.owned.torch = true;
   // Tool migration: rename door -> teleport
   if (this.tools.owned?.door) { delete this.tools.owned.door; this.tools.owned.teleport = true; }
   if (!this.tools.owned?.teleport) this.tools.owned.teleport = true;
@@ -2150,7 +2452,7 @@ class GameScene extends Phaser.Scene {
     this.tools.equipped = tool; this.updateInventoryUI(); this.saveState();
   }
   cycleTool(){
-  const order = ['hand','wooden','stone','iron','pistol','cannon','minigun','knife','sniper','hook','cloner','teleport','slimecloner'];
+  const order = ['hand','wooden','stone','iron','pistol','cannon','minigun','knife','sniper','hook','cloner','teleport','slimecloner','torch'];
   if (!this.tools.owned?.hook) this.tools.owned.hook = true;
     let idx = order.indexOf(this.tools.equipped);
     for (let i=1;i<=order.length;i++){
@@ -2160,6 +2462,7 @@ class GameScene extends Phaser.Scene {
     this.updateInventoryUI(); this.saveState();
   if (this.tools.equipped === 'teleport') this.showToast('Teleportti: oikea klikkaus asettaa (8 puuta). R vaihtaa väriä. Mene porttiin: 1,2,3 -> siirto.');
   if (this.tools.equipped === 'slimecloner') this.showToast('Limaklooni: oikea asettaa laitteen, vasen poistaa. Tuottaa limoja ajan kanssa.');
+  if (this.tools.equipped === 'torch') this.showToast('Soihdu: oikea asettaa, vasen poistaa. Estää zombeja yöllä.');
   }
 
   // Small deterministic RNG for reproducible world
