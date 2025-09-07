@@ -79,6 +79,9 @@ class GameScene extends Phaser.Scene {
   // Vine (liaani) state
   this.vine = { active:false, reeling:false, anchor:null, length:0 };
 
+  // Game mode: 'classic' | 'galactic' | 'web'
+  this.mode = { current: 'classic' };
+
   // Cloner tool and clones
   this.cloneSettings = { target: 'none' }; // 'none'|'ground'|'stone'|'sand'|'cactus'|'trunk'
   this.clones = this.physics?.add?.group ? this.physics.add.group() : null;
@@ -251,7 +254,11 @@ class GameScene extends Phaser.Scene {
 
     // Bullet texture
     g.fillStyle(0x333333,1); g.fillRect(0,0,8,4); g.lineStyle(1,0x000000,1); g.strokeRect(0,0,8,4);
-    g.generateTexture('tex_bullet',8,4); g.clear();
+  g.generateTexture('tex_bullet',8,4); g.clear();
+  // Laser (galactic mode)
+  g.fillStyle(0xff2a2a,1); g.fillRect(0,0,14,3); g.generateTexture('tex_laser',14,3); g.clear();
+  // Web pellet (web mode)
+  g.fillStyle(0xffffff,1); g.fillCircle(3,3,3); g.generateTexture('tex_web',6,6); g.clear();
 
   // Rocket texture (for bazooka)
   g.fillStyle(0x777777,1); g.fillRect(0,0,12,4);
@@ -361,14 +368,20 @@ class GameScene extends Phaser.Scene {
   this.physics.add.overlap(this.player, this.zombies, (p,z)=>{ this._hitByEnemy(z); }, null, this);
   this.physics.add.overlap(this.bullets, this.birds, (bullet, bird)=>{
       if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); bullet.destroy(); return; }
-      bird.destroy(); bullet.destroy();
+      if (bullet?.getData && bullet.getData('isWeb') && this.mode.current==='web') {
+        bird.setVelocity(0,0); bird.body.allowGravity = false; bird._webbedUntil = this.time.now + 3000; // 3s
+      } else {
+        bird.destroy();
+      }
+      bullet.destroy();
     }, null, this);
   this.physics.add.overlap(this.bullets, this.slimes, (bullet, slime)=>{
       if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); bullet.destroy(); return; }
-      const x = slime.x, y = slime.y;
-      slime.destroy();
-      // Drop 3 coins when a slime dies
-      this.dropCoins(x, y, 3);
+      if (bullet?.getData && bullet.getData('isWeb') && this.mode.current==='web') {
+        slime.setVelocity(0,0); slime._webbedUntil = this.time.now + 4000; // 4s
+      } else {
+        const x = slime.x, y = slime.y; slime.destroy(); this.dropCoins(x, y, 3);
+      }
       bullet.destroy();
     }, null, this);
   this.physics.add.overlap(this.bullets, this.clones, (bullet, clone)=>{
@@ -377,12 +390,17 @@ class GameScene extends Phaser.Scene {
     }, null, this);
   this.physics.add.overlap(this.bullets, this.zombies, (bullet, zombie)=>{
       if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); bullet.destroy(); return; }
-      const x=zombie.x,y=zombie.y; zombie.destroy(); this.dropCoins(x,y,2); bullet.destroy();
+      if (bullet?.getData && bullet.getData('isWeb') && this.mode.current==='web') {
+        zombie.setVelocity(0,0); zombie._webbedUntil = this.time.now + 4000;
+      } else {
+        const x=zombie.x,y=zombie.y; zombie.destroy(); this.dropCoins(x,y,2);
+      }
+      bullet.destroy();
     }, null, this);
 
     // Input
     this.cursors = this.input.keyboard.createCursorKeys();
-  this.keys = this.input.keyboard.addKeys({ A: 'A', D: 'D', W: 'W', SPACE: 'SPACE', C: 'C', V: 'V', E: 'E', ONE: 'ONE', TWO: 'TWO', THREE: 'THREE', FOUR: 'FOUR', FIVE: 'FIVE', SIX: 'SIX', SEVEN: 'SEVEN', EIGHT: 'EIGHT', NINE: 'NINE', Q: 'Q', R: 'R', T: 'T', X: 'X' });
+  this.keys = this.input.keyboard.addKeys({ A: 'A', D: 'D', W: 'W', SPACE: 'SPACE', C: 'C', V: 'V', E: 'E', ONE: 'ONE', TWO: 'TWO', THREE: 'THREE', FOUR: 'FOUR', FIVE: 'FIVE', SIX: 'SIX', SEVEN: 'SEVEN', EIGHT: 'EIGHT', NINE: 'NINE', Q: 'Q', R: 'R', T: 'T', X: 'X', M: 'M' });
   this.input.mouse?.disableContextMenu();
   // Pointer interactions: on desktop left-click mines/shoots, right-click places
     // On touch, use placeMode toggle to place plank with a tap
@@ -458,6 +476,8 @@ class GameScene extends Phaser.Scene {
       if (this.tools.equipped === 'cannon') this.toggleCannonMode();
       else if (this.tools.equipped === 'teleport') this.cyclePortalColor();
     }));
+  // Mode toggle (Classic -> Star -> Spider)
+  this.input.keyboard.on('keydown-M', guard(()=> this.cycleMode()));
     // Debug: show death banner with B
     this.input.keyboard.on('keydown-B', guard(()=> this.showDeathBanner()));
     // Space = vine toggle (shoot -> reel -> cancel)
@@ -512,6 +532,7 @@ class GameScene extends Phaser.Scene {
     '\nVasen klikkaus = mainaa (myös alaspäin) tai ammu (pistoolilla)  |  Oikea klikkaus = aseta lankku' +
   '\nC/V = craftaa 3 puusta 1 lankku  |  E = kauppias  |  1-9/Q = työkalut' +
       '\nSpace = liaani  |  R = Tykki-tila (Minigun/Tarkka)' +
+      '\nM = Pelitila (Klassinen / Star / Spider)' +
   '\nTeleportti: oikea klikkaus asettaa (8 puuta). Vasen poistaa. R vaihtaa väriä. Mene porttiin: 1,2,3 -> siirto.' +
   '\nLimaklooni: oikea asettaa laitteen, vasen poistaa. Tuottaa limoja ajan kanssa.' +
       '\nPunainen timantti -> Lento  |  Vesi: uida ylös/alas Ylöksellä/Space' +
@@ -725,9 +746,22 @@ class GameScene extends Phaser.Scene {
     if (this.slimes) {
       this.slimes.children.iterate((sl)=>{
         if (!sl || !sl.body) return;
+        if (sl._webbedUntil && this.time.now < sl._webbedUntil) { sl.setVelocity(0,0); return; } else if (sl._webbedUntil && this.time.now >= sl._webbedUntil) { sl._webbedUntil = 0; }
         if (sl.body.blocked.left) { sl.setVelocityX(80); sl.setFlipX(false); }
         else if (sl.body.blocked.right) { sl.setVelocityX(-80); sl.setFlipX(true); }
         if ((sl.body.blocked.down || sl.body.touching.down) && Math.random()<0.005) sl.setVelocityY(-260);
+      });
+    }
+
+    // Bird web recovery
+    if (this.birds) {
+      this.birds.children.iterate((b)=>{
+        if (!b) return;
+        if (b._webbedUntil && this.time.now >= b._webbedUntil) {
+          b._webbedUntil = 0; b.body && (b.body.allowGravity = false);
+          // resume horizontal drift
+          if (b.active) b.setVelocityX((Math.random()<0.5?-1:1) * (120 + Math.random()*120));
+        }
       });
     }
 
@@ -822,7 +856,8 @@ class GameScene extends Phaser.Scene {
     this.vineGfx.clear();
     if (this.vine.active && this.vine.anchor) {
       // Draw vine line
-      this.vineGfx.lineStyle(3, 0x6b8e23, 0.95);
+      const vineColor = this.mode.current==='galactic' ? 0xff2a2a : (this.mode.current==='web' ? 0xffffff : 0x6b8e23);
+      this.vineGfx.lineStyle(3, vineColor, 0.95);
       this.vineGfx.beginPath();
       this.vineGfx.moveTo(this.player.x, this.player.y);
       this.vineGfx.lineTo(this.vine.anchor.x, this.vine.anchor.y);
@@ -832,7 +867,8 @@ class GameScene extends Phaser.Scene {
       const dx = ax - this.player.x, dy = ay - this.player.y;
       const dist = Math.hypot(dx, dy);
       if (!this.vine.length) this.vine.length = dist;
-      if (this.vine.reeling) this.vine.length = Math.max(18, this.vine.length - 200 * (1/60));
+  const reelSpeed = this.mode.current==='web' ? 260 : 200;
+  if (this.vine.reeling) this.vine.length = Math.max(18, this.vine.length - reelSpeed * (1/60));
       if (dist > this.vine.length) {
         const nx = dx / dist, ny = dy / dist;
         const pull = 520;
@@ -862,15 +898,59 @@ class GameScene extends Phaser.Scene {
       // torch light holes
       if (this.torchPositions?.length) {
         this.darknessGfx.setBlendMode(Phaser.BlendModes.ERASE);
-        const rad = 140;
-        for (const p of this.torchPositions) {
+  const rad = 140;
+  for (const p of this.torchPositions) {
           const wx = p.tx*TILE + TILE/2;
           const wy = p.ty*TILE + TILE/2;
           const sx = wx - cam.scrollX;
           const sy = wy - cam.scrollY;
           if (sx < -rad || sy < -rad || sx > cam.width+rad || sy > cam.height+rad) continue;
-          this.darknessGfx.fillStyle(0xffffff, 1);
-          this.darknessGfx.fillCircle(sx, sy, rad);
+          // Radial gradient: strong erase at center, smoothly fading to edge (more transparent overall)
+          const steps = 32; const maxA = 0.30, minA = 0.02;
+          const key = `${p.tx},${p.ty}`;
+          const torch = this.torches.get(key);
+          const flick = torch?.flicker;
+          const time = this.time.now / 1000;
+          const flickPhase = flick ? (flick.seed + time * flick.speed) : 0;
+          const radiusJitter = flick ? (1 + Math.sin(flickPhase) * flick.ampR) : 1;
+          const alphaJitter = flick ? (1 + Math.sin(flickPhase*1.3 + 0.7) * flick.ampA) : 1;
+          const frad = rad * radiusJitter;
+          for (let i = steps; i >= 1; i--) {
+            const frac = i / steps;           // 1.0 -> 1/steps (outer->inner radius)
+            const rr = frad * frac;
+            const t = 1 - frac;               // 0 at edge -> 1 at center
+            const eased = t * t;              // quadratic ease-in for smoother center
+            const a = (minA + (maxA - minA) * eased) * alphaJitter;
+            this.darknessGfx.fillStyle(0xffffff, a);
+            this.darknessGfx.fillCircle(sx, sy, rr);
+          }
+        }
+        // Add a warm yellow glow pass on top to simulate fire tint (also flickers)
+        this.darknessGfx.setBlendMode(Phaser.BlendModes.ADD);
+        const glowColor = 0xffcc55;
+        const glowSteps = 20; const glowMaxA = 0.12; const glowMinA = 0.0; const glowRad = rad * 0.75;
+        for (const p of this.torchPositions) {
+          const wx = p.tx*TILE + TILE/2;
+          const wy = p.ty*TILE + TILE/2;
+          const sx = wx - cam.scrollX;
+          const sy = wy - cam.scrollY;
+          if (sx < -glowRad || sy < -glowRad || sx > cam.width+glowRad || sy > cam.height+glowRad) continue;
+          const key = `${p.tx},${p.ty}`;
+          const torch = this.torches.get(key);
+          const flick = torch?.flicker;
+          const time = this.time.now / 1000;
+          const flickPhase = flick ? (flick.seed + time * flick.speed) : 0;
+          const glowR = glowRad * (flick ? (1 + Math.sin(flickPhase)*flick.ampR*0.8) : 1);
+          const glowScaleA = flick ? (1 + Math.sin(flickPhase*1.3+0.7)*flick.ampA) : 1;
+          for (let i=glowSteps; i>=1; i--) {
+            const frac = i / glowSteps;
+            const rr = glowR * frac;
+            const t = 1 - frac;
+            const eased = t * t;
+            const a = (glowMinA + (glowMaxA - glowMinA) * eased) * glowScaleA;
+            this.darknessGfx.fillStyle(glowColor, a);
+            this.darknessGfx.fillCircle(sx, sy, rr);
+          }
         }
         this.darknessGfx.setBlendMode(Phaser.BlendModes.NORMAL);
       }
@@ -913,6 +993,7 @@ class GameScene extends Phaser.Scene {
     if (this.zombies) {
       this.zombies.children.iterate((z)=>{
         if (!z || !z.body) return;
+        if (z._webbedUntil && this.time.now < z._webbedUntil) { z.setVelocity(0,0); return; } else if (z._webbedUntil && this.time.now >= z._webbedUntil) { z._webbedUntil = 0; }
         const dx = this.player.x - z.x;
         const dir = Math.sign(dx) || 1;
         z.setVelocityX(dir * 80);
@@ -1129,11 +1210,12 @@ class GameScene extends Phaser.Scene {
     if (this.blocks.get(key)) { this.showToast('Paikka varattu'); return; }
     if (!this.hasSolidBlockAt(tx, ty+1)) { this.showToast('Tarvitset lattian alle'); return; }
     const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
-    const img = this.add.image(x,y,'tex_torch').setDepth(4);
+  const img = this.add.image(x,y,'tex_torch').setDepth(4);
   this.decor.add(img);
   const cx = Math.floor(tx / CHUNK_W);
   this.chunks.get(cx)?.decor.push(img);
-    this.torches.set(key, { image: img });
+  const flicker = { seed: Math.random()*Math.PI*2, speed: 2 + Math.random()*1.2, ampR: 0.05, ampA: 0.15 };
+  this.torches.set(key, { image: img, flicker });
     this.torchPositions.push({ tx, ty });
     this.saveState();
   }
@@ -1676,7 +1758,12 @@ class GameScene extends Phaser.Scene {
       normX = Math.cos(a);
       normY = Math.sin(a);
     }
-  const bullet = this.bullets.create(this.player.x, this.player.y, 'tex_bullet');
+  // Choose projectile sprite by mode
+  let projKey = 'tex_bullet';
+  if (this.mode.current === 'galactic') projKey = 'tex_laser';
+  if (this.mode.current === 'web') projKey = 'tex_web';
+  const bullet = this.bullets.create(this.player.x, this.player.y, projKey);
+  if (this.mode.current === 'web') bullet.setData('isWeb', true);
   const speed = 600; // px per second
   bullet.setVelocity(normX * speed, normY * speed);
     bullet.setRotation(Math.atan2(normY, normX));
@@ -1710,7 +1797,11 @@ class GameScene extends Phaser.Scene {
       const a = base + jitter;
       nx = Math.cos(a); ny = Math.sin(a);
     }
-    const b = this.bullets.create(sx, sy, 'tex_bullet');
+  let projKey = 'tex_bullet';
+  if (this.mode.current === 'galactic') projKey = 'tex_laser';
+  if (this.mode.current === 'web') projKey = 'tex_web';
+  const b = this.bullets.create(sx, sy, projKey);
+  if (this.mode.current === 'web') b.setData('isWeb', true);
     const speed = opts.speed || 600;
     b.setVelocity(nx*speed, ny*speed);
     b.setRotation(Math.atan2(ny, nx));
@@ -1743,7 +1834,7 @@ class GameScene extends Phaser.Scene {
       try { bullet.destroy(); } catch(e) {}
       return;
     }
-    // Bullets flagged noBlockDamage (e.g., car turrets) simply disappear on hit
+  // Bullets flagged noBlockDamage (e.g., car turrets) simply disappear on hit
     if (bullet?.getData && bullet.getData('noBlockDamage')) { try { bullet.destroy(); } catch(e) {} return; }
     const tx = Math.floor(block.x / TILE);
     const ty = Math.floor(block.y / TILE);
@@ -1764,6 +1855,15 @@ class GameScene extends Phaser.Scene {
     // If there is water above this tile, let it flow down
     this.tryFlowWaterFrom(tx, ty-1);
     bullet.destroy();
+    this.saveState();
+  }
+
+  cycleMode(){
+    const order = ['classic','galactic','web'];
+    const i = order.indexOf(this.mode.current);
+    this.mode.current = order[(i+1)%order.length];
+    this.showToast(`Tila: ${this.mode.current==='classic'?'Klassinen': this.mode.current==='galactic'?'Star':'Spider'}`);
+    this.updateUI();
     this.saveState();
   }
 
@@ -1914,9 +2014,10 @@ class GameScene extends Phaser.Scene {
     slots[4].textContent = this.state.canFly ? 'Lento ✓' : '';
     // Show equipped tool
   const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu' };
-    const eq = this.tools.equipped;
-    const suffix = eq === 'cannon' ? ` (${this.tools.cannonMode==='minigun'?'Minigun':'Tarkka'})` : '';
-    slots[5].textContent = `Työkalu: ${toolNames[eq]}${suffix}`;
+  const eq = this.tools.equipped;
+  const suffix = eq === 'cannon' ? ` (${this.tools.cannonMode==='minigun'?'Minigun':'Tarkka'})` : '';
+  const modeLabel = this.mode?.current==='classic' ? 'Klassinen' : (this.mode.current==='galactic'?'Star':'Spider');
+  slots[5].textContent = `Työkalu: ${toolNames[eq]}${suffix}  |  Tila: ${modeLabel}`;
   }
 
   updateToolSelect(){
@@ -2025,11 +2126,12 @@ class GameScene extends Phaser.Scene {
     if (Array.isArray(this.torchPositions)) {
       for (const p of this.torchPositions) {
         const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
-        const img = this.add.image(x,y,'tex_torch').setDepth(4);
+  const img = this.add.image(x,y,'tex_torch').setDepth(4);
         this.decor.add(img);
         const cx = Math.floor(p.tx / CHUNK_W);
         this.chunks.get(cx)?.decor.push(img);
-        this.torches.set(`${p.tx},${p.ty}`, { image: img });
+  const flicker = { seed: Math.random()*Math.PI*2, speed: 2 + Math.random()*1.2, ampR: 0.05, ampA: 0.15 };
+  this.torches.set(`${p.tx},${p.ty}`, { image: img, flicker });
       }
     }
   }
@@ -2307,7 +2409,10 @@ class GameScene extends Phaser.Scene {
           this.decor.add(img);
           this.chunks.get(cx)?.decor.push(img);
           if (existing) { existing.image = img; }
-          else this.torches.set(key, { image: img });
+          else {
+            const flicker = { seed: Math.random()*Math.PI*2, speed: 2 + Math.random()*1.2, ampR: 0.05, ampA: 0.15 };
+            this.torches.set(key, { image: img, flicker });
+          }
         }
       }
     }
@@ -2502,7 +2607,7 @@ class GameScene extends Phaser.Scene {
   }
 
   saveState(){
-  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, torches: this.torchPositions, moped: { color: this.moped.color, decal: this.moped.decal } };
+  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, torches: this.torchPositions, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic' };
     try { localStorage.setItem('UAG_save', JSON.stringify(data)); } catch(e) {}
   }
 
@@ -2532,6 +2637,7 @@ class GameScene extends Phaser.Scene {
     this.portalPositions = (this.portalPositions||[]).concat(d.doors.slice(0,5000).map(x=>({ tx:x.tx, ty:x.ty, color:'blue' })));
   }
   if (d.tools) this.tools = d.tools;
+  if (d.mode) this.mode.current = d.mode;
   // Ensure pistol, cannon, minigun, knife, sniper & bazooka exist for older saves
   if (!this.tools.owned?.pistol) this.tools.owned.pistol = true;
   if (!this.tools.owned?.cannon) this.tools.owned.cannon = true;
