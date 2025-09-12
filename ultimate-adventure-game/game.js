@@ -26,6 +26,7 @@ class GameScene extends Phaser.Scene {
   this.zombies = null; // night enemies (2 tiles tall)
   this.zombies = null; // night enemies
   this.bosses = null;  // Mörkö bosses
+  this.hemulis = null; // Hemuli flyers
     this.items = null;  // physics items to pick up
     this.invulnUntil = 0;
 
@@ -35,8 +36,8 @@ class GameScene extends Phaser.Scene {
   // Backpack: up to 3 item stacks (each { item: 'wood'|'stone'|..., qty:number })
   this.backpack = [null, null, null];
 
-    // Core state
-    this.state = { health: 4, coins: 0, canFly: false };
+  // Core state
+  this.state = { health: 4, coins: 0, canFly: false, bounceShoes: false };
     this.nearMerchant = false;
 
     // World persistence diff
@@ -52,7 +53,7 @@ class GameScene extends Phaser.Scene {
 
     // Tool system
     this.tools = {
-  owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, cannon: true, minigun: true, knife: true, sniper: true, bazooka: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true },
+  owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, cannon: true, minigun: true, knife: true, sniper: true, bazooka: true, grenade: true, nuke: true, plane: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true },
       equipped: 'pistol',
       cannonMode: 'minigun' // 'minigun' | 'sniper'
     };
@@ -95,6 +96,10 @@ class GameScene extends Phaser.Scene {
   // Car state (auto-turrets)
   this.car = { sprite: null, turrets: [], mounted: false, zone: null, prompt: null };
   this.nearCar = false;
+
+  // Plane state (auto-turrets, faster)
+  this.plane = { sprite: null, turrets: [], mounted: false, zone: null, prompt: null, speedMult: 2.2 };
+  this.nearPlane = false;
 
   // Day/Night cycle and darkness overlay
   this.day = { period: 120000, start: 0, isNight: false, lastIsNight: false };
@@ -204,10 +209,16 @@ class GameScene extends Phaser.Scene {
     g.lineStyle(2, 0xaa0022, 1); g.strokePath();
     g.generateTexture('tex_red', r, r); g.clear();
 
-    // Coin
-    const c = TILE - 16, cx = c/2;
-    g.fillStyle(0xffd84d,1); g.fillCircle(cx,cx,cx); g.lineStyle(2,0xb48700,1); g.strokeCircle(cx,cx,cx);
-    g.generateTexture('tex_coin', c, c); g.clear();
+  // Coin
+  const c = TILE - 16, cx = c/2;
+  g.fillStyle(0xffd84d,1); g.fillCircle(cx,cx,cx); g.lineStyle(2,0xb48700,1); g.strokeCircle(cx,cx,cx);
+  g.generateTexture('tex_coin', c, c); g.clear();
+
+  // Boots (bounce shoes) pickup
+  const bootW=20, bootH=14; g.fillStyle(0x3a3a3a,1); g.fillRect(0,8,bootW,6); // soles
+  g.fillStyle(0x77ff77,1); g.fillRect(2,2,6,6); g.fillRect(12,2,6,6); // uppers
+  g.lineStyle(2,0x2a992a,1); g.strokeRect(2,2,6,6); g.strokeRect(12,2,6,6);
+  g.generateTexture('tex_boots', bootW, bootH); g.clear();
 
     // Tree trunk and leaves
     g.fillStyle(0x6b3a1b,1); g.fillRect(0,0,TILE,TILE); g.lineStyle(2,0x4a2a12,1); g.strokeRect(0,0,TILE,TILE); g.generateTexture('tex_trunk',TILE,TILE); g.clear();
@@ -240,9 +251,11 @@ class GameScene extends Phaser.Scene {
   g.lineStyle(6,0x221833,1); g.strokeRoundedRect(0,0,bwT,bhT,14);
   // eyes + mouth
   g.fillStyle(0xffffff,1); g.fillCircle(bwT*0.32, bhT*0.28, 14); g.fillCircle(bwT*0.68, bhT*0.28, 14);
-  g.fillStyle(0x000000,1); g.fillCircle(bwT*0.32, bhT*0.28, 7); g.fillCircle(bwT*0.68, bhT*0.28, 7);
   g.fillStyle(0xff3355,1); g.fillRoundedRect(bwT*0.28, bhT*0.58, bwT*0.44, 26, 10);
   g.generateTexture('tex_boss_morko', bwT, bhT); g.clear();
+
+  // Pupil texture for boss dynamic eyes
+  g.fillStyle(0x000000,1); g.fillCircle(5,5,5); g.generateTexture('tex_pupil', 10, 10); g.clear();
 
   // Cactus tile (one segment, stacks vertically)
   g.fillStyle(0x2FA05A, 1);
@@ -267,6 +280,24 @@ class GameScene extends Phaser.Scene {
     // Bullet texture
     g.fillStyle(0x333333,1); g.fillRect(0,0,8,4); g.lineStyle(1,0x000000,1); g.strokeRect(0,0,8,4);
   g.generateTexture('tex_bullet',8,4); g.clear();
+    // Simple weapon sprites (held in hand)
+    // Pistol
+    g.fillStyle(0x444444,1); g.fillRect(0,2,10,4); g.fillRect(2,0,3,2); g.lineStyle(1,0x222222,1); g.strokeRect(0,2,10,4);
+    g.generateTexture('tex_weapon_pistol',12,8); g.clear();
+    // Minigun
+    g.fillStyle(0x555555,1); g.fillRect(0,1,16,6); g.fillStyle(0x777777,1); g.fillRect(10,0,6,2); g.fillRect(10,6,6,2);
+    g.lineStyle(1,0x333333,1); g.strokeRect(0,1,16,6);
+    g.generateTexture('tex_weapon_minigun',18,8); g.clear();
+    // Sniper rifle
+    g.fillStyle(0x4a4a4a,1); g.fillRect(0,2,22,3); g.fillStyle(0x8b5a2b,1); g.fillRect(3,4,6,2); g.lineStyle(1,0x222222,1); g.strokeRect(0,2,22,3);
+    g.generateTexture('tex_weapon_sniper',24,8); g.clear();
+    // Bazooka launcher
+    g.fillStyle(0x2f2f2f,1); g.fillRect(0,1,20,6); g.fillStyle(0x6a6a6a,1); g.fillRect(2,0,4,2); g.fillRect(2,7,4,2);
+    g.lineStyle(1,0x111111,1); g.strokeRect(0,1,20,6);
+    g.generateTexture('tex_weapon_bazooka',22,10); g.clear();
+    // Knife
+    g.fillStyle(0xbfbfbf,1); g.fillRect(0,2,10,2); g.fillStyle(0x8b5a2b,1); g.fillRect(10,1,3,4); g.lineStyle(1,0x777777,1); g.strokeRect(0,2,10,2);
+    g.generateTexture('tex_weapon_knife',14,8); g.clear();
   // Laser (galactic mode)
   g.fillStyle(0xff2a2a,1); g.fillRect(0,0,14,3); g.generateTexture('tex_laser',14,3); g.clear();
   // Web pellet (web mode)
@@ -277,6 +308,38 @@ class GameScene extends Phaser.Scene {
   g.fillStyle(0xdd3333,1); g.fillRect(10,0,2,4);
   g.lineStyle(1,0x333333,1); g.strokeRect(0,0,12,4);
   g.generateTexture('tex_rocket',12,4); g.clear();
+
+  // Hemuli (simple flying enemy)
+  const hw=26, hh=18; g.fillStyle(0x664422,1); g.fillRoundedRect(4,4,18,10,4); // body
+  g.fillStyle(0xffffff,0.9); g.fillRect(0,7,8,4); g.fillRect(hw-8,7,8,4); // wings
+  g.fillStyle(0x000000,1); g.fillCircle(10,9,1); g.fillCircle(16,9,1); // eyes
+  g.generateTexture('tex_hemuli', hw, hh); g.clear();
+
+  // Oppo (jumper) texture
+  g.fillStyle(0x884488,1); g.fillRoundedRect(2,6,24,18,6); // body
+  g.fillStyle(0xffffff,1); g.fillCircle(10,12,2); g.fillCircle(18,12,2); // eyes
+  g.fillStyle(0x222222,1); g.fillCircle(10,12,1); g.fillCircle(18,12,1); // pupils
+  g.fillStyle(0x333333,1); g.fillRect(4,22,8,2); g.fillRect(16,22,8,2); // feet
+  g.generateTexture('tex_oppo', 28, 26); g.clear();
+
+  // Grenade texture (pin + body)
+  g.fillStyle(0x2f2f2f,1); g.fillCircle(8,8,8); g.fillStyle(0x5a5a5a,1); g.fillRect(6,0,4,6);
+  g.lineStyle(2,0x1b1b1b,1); g.strokeCircle(8,8,8);
+  g.generateTexture('tex_grenade',16,16); g.clear();
+
+  // Nuke icon (radiation trefoil)
+  g.fillStyle(0x222222,1); g.fillCircle(8,8,7);
+  g.fillStyle(0xffe94d,1);
+  // three wedges
+  const drawWedge=(a)=>{ g.beginPath(); g.moveTo(8,8); const r=6; g.arc(8,8,r,Phaser.Math.DegToRad(a-22),Phaser.Math.DegToRad(a+22)); g.closePath(); g.fillPath(); };
+  drawWedge(-90); drawWedge(30); drawWedge(150);
+  g.fillStyle(0x222222,1); g.fillCircle(8,8,2.2);
+  g.generateTexture('tex_nuke',16,16); g.clear();
+
+  // Plane icon (simple silhouette)
+  g.fillStyle(0xffffff,1);
+  g.beginPath(); g.moveTo(1,9); g.lineTo(15,9); g.lineTo(10,6); g.lineTo(10,3); g.lineTo(6,6); g.lineTo(1,9); g.closePath(); g.fillPath();
+  g.generateTexture('tex_plane',16,16); g.clear();
 
   // Hook head texture
   g.fillStyle(0xffffff,1); g.fillCircle(6,6,6); g.lineStyle(2,0x444444,1); g.strokeCircle(6,6,6);
@@ -345,6 +408,10 @@ class GameScene extends Phaser.Scene {
   this.zombies = this.physics.add.group();
   this.bosses = this.physics.add.group();
   this.bullets = this.physics.add.group({ allowGravity: false });
+  // Enemy: Hemuli group
+  this.hemulis = this.physics.add.group({ allowGravity: false });
+  // Enemy: Oppo group (ground jumper)
+  this.oppos = this.physics.add.group();
   this.portalsGroup = this.physics.add.staticGroup();
     this.physics.add.overlap(this.bullets, this.portalsGroup, (bullet, zone)=>{
       try { bullet?.destroy(); } catch(e) {}
@@ -372,6 +439,7 @@ class GameScene extends Phaser.Scene {
     // Colliders/overlaps
     this.physics.add.collider(this.player, this.platforms);
     this.physics.add.collider(this.slimes, this.platforms);
+  this.physics.add.collider(this.oppos, this.platforms);
     this.physics.add.collider(this.bullets, this.platforms, this.onBulletHit, null, this);
     this.physics.add.overlap(this.player, this.pickups, this.onPickup, null, this);
     this.physics.add.overlap(this.player, this.waters, this.onEnterWater, null, this);
@@ -379,7 +447,35 @@ class GameScene extends Phaser.Scene {
   this.physics.add.overlap(this.player, this.birds, this.onBirdHit, null, this);
     this.physics.add.overlap(this.player, this.slimes, this.onSlimeHit, null, this);
   this.physics.add.overlap(this.player, this.zombies, (p,z)=>{ this._hitByEnemy(z); }, null, this);
+  this.physics.add.overlap(this.player, this.hemulis, (p,h)=>{ this._hitByEnemy(h); }, null, this);
   this.physics.add.overlap(this.player, this.bosses, (p,b)=>{ this._hitByEnemy(b); }, null, this);
+  // Oppo contact: lethal on touch if it has bounce shoes
+  this.physics.add.overlap(this.player, this.oppos, (p,o)=>{
+    if (o?.getData && o.getData('bounceShoes')) { this.damage(999); }
+    else { this._hitByEnemy(o); }
+  }, null, this);
+  // Player bullets vs Hemuli
+  this.physics.add.overlap(this.bullets, this.hemulis, (bullet, hemuli)=>{
+      if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); bullet.destroy(); return; }
+      if (bullet?.getData && bullet.getData('fromHemuli')) { return; }
+      if (bullet?.getData && bullet.getData('isWeb') && this.mode.current==='web') {
+        hemuli.setVelocity(0,0); hemuli.body.allowGravity = false; hemuli._webbedUntil = this.time.now + 3000; // 3s
+      } else {
+        hemuli.destroy();
+      }
+      bullet.destroy();
+    }, null, this);
+  // Player bullets vs Oppo
+  this.physics.add.overlap(this.bullets, this.oppos, (bullet, oppo)=>{
+      if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); bullet.destroy(); return; }
+      if (bullet?.getData && bullet.getData('isWeb') && this.mode.current==='web') {
+        oppo.setVelocity(0,0); oppo._webbedUntil = this.time.now + 4000; // 4s
+      } else {
+  const x=oppo.x,y=oppo.y; oppo.destroy(); this.dropCoins(x,y,2);
+  if (Math.random() < 0.22 && !this.state.bounceShoes) this.spawnPickup(x, y, 'tex_boots');
+      }
+      bullet.destroy();
+    }, null, this);
   this.physics.add.overlap(this.bullets, this.birds, (bullet, bird)=>{
       if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); bullet.destroy(); return; }
       if (bullet?.getData && bullet.getData('isWeb') && this.mode.current==='web') {
@@ -421,10 +517,14 @@ class GameScene extends Phaser.Scene {
       }
       bullet.destroy();
     }, null, this);
+    // Enemy bullets (Hemuli) hurt player but don't break blocks
+    this.physics.add.overlap(this.bullets, this.player, (bullet, player)=>{
+      if (bullet.getData('fromHemuli')) { this.damage(1); bullet.destroy(); }
+    }, null, this);
 
     // Input
     this.cursors = this.input.keyboard.createCursorKeys();
-  this.keys = this.input.keyboard.addKeys({ A: 'A', D: 'D', W: 'W', SPACE: 'SPACE', C: 'C', V: 'V', E: 'E', ONE: 'ONE', TWO: 'TWO', THREE: 'THREE', FOUR: 'FOUR', FIVE: 'FIVE', SIX: 'SIX', SEVEN: 'SEVEN', EIGHT: 'EIGHT', NINE: 'NINE', Q: 'Q', R: 'R', T: 'T', X: 'X', M: 'M' });
+  this.keys = this.input.keyboard.addKeys({ A: 'A', D: 'D', W: 'W', SPACE: 'SPACE', C: 'C', V: 'V', E: 'E', ONE: 'ONE', TWO: 'TWO', THREE: 'THREE', FOUR: 'FOUR', FIVE: 'FIVE', SIX: 'SIX', SEVEN: 'SEVEN', EIGHT: 'EIGHT', NINE: 'NINE', Q: 'Q', R: 'R', T: 'T', G: 'G', X: 'X', M: 'M' });
   this.input.mouse?.disableContextMenu();
   // Pointer interactions: on desktop left-click mines/shoots, right-click places
     // On touch, use placeMode toggle to place plank with a tap
@@ -484,6 +584,9 @@ class GameScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-EIGHT', guard(()=> this.tryEquipTool('sniper')));
   // Quick-equip bazooka with T
   this.input.keyboard.on('keydown-T', guard(()=> this.tryEquipTool('bazooka')));
+  this.input.keyboard.on('keydown-G', guard(()=> this.tryEquipTool('grenade')));
+  this.input.keyboard.on('keydown-Y', guard(()=> this.tryEquipTool('nuke')));
+  this.input.keyboard.on('keydown-P', guard(()=> this.tryEquipTool('plane')));
   this.input.keyboard.on('keydown-NINE', guard(()=> this.tryEquipTool('hook')));
   // 0 for cloner (if keyboard row allows)
   this.input.keyboard.on('keydown-ZERO', guard(()=> this.tryEquipTool('cloner')));
@@ -520,19 +623,22 @@ class GameScene extends Phaser.Scene {
     // Mopo: F nouse/poistu, Shift = turbo
     this.input.keyboard.on('keydown-F', ()=>{
       if (!this.started || this.isPaused) return;
-    if (this.nearMoped) this.toggleMoped();
-    if (this.nearCar) this.toggleCar();
+  if (this.nearMoped) this.toggleMoped();
+  if (this.nearCar) this.toggleCar();
+  if (this.nearPlane) this.togglePlane();
     });
     // Enter/exit car with Down arrow
     this.input.keyboard.on('keydown-DOWN', ()=>{
       if (!this.started || this.isPaused) return;
       // If near car and not mounted, enter. If mounted, allow exit too.
-      if ((this.nearCar && !this.car.mounted) || this.car.mounted) this.toggleCar();
+  if ((this.nearCar && !this.car.mounted) || this.car.mounted) this.toggleCar();
+  else if ((this.nearPlane && !this.plane.mounted) || this.plane.mounted) this.togglePlane();
     });
     // Also support cursor down key object
     this.cursors?.down?.on('down', ()=>{
       if (!this.started || this.isPaused) return;
-      if ((this.nearCar && !this.car.mounted) || this.car.mounted) this.toggleCar();
+  if ((this.nearCar && !this.car.mounted) || this.car.mounted) this.toggleCar();
+  else if ((this.nearPlane && !this.plane.mounted) || this.plane.mounted) this.togglePlane();
     });
     this.input.keyboard.on('keydown-SHIFT', ()=>{ this._mopedBoost = true; });
     this.input.keyboard.on('keyup-SHIFT',   ()=>{ this._mopedBoost = false; });
@@ -549,6 +655,12 @@ class GameScene extends Phaser.Scene {
   this.createMoped();
   // Place car near spawn
   this.createCar();
+  // Spawn first Hemuli a bit away
+  this._nextHemuliAt = this.time.now + 6000;
+  // Spawn first Oppo a bit later
+  this._nextOppoAt = this.time.now + 8000;
+  // Place plane near spawn
+  this.createPlane();
 
   // Instructions
     this.add.text(14,14,
@@ -575,6 +687,10 @@ class GameScene extends Phaser.Scene {
 
     // Populate tool select
     this.updateToolSelect();
+  // Create weapon sprite (follows player hand)
+  this.weaponSprite = this.add.image(this.player.x, this.player.y, 'tex_weapon_pistol').setDepth(6).setVisible(false);
+  this.weaponSprite.setOrigin(0.15, 0.5);
+  this.updateWeaponSprite?.();
 
     // Ensure chunks around the player now that player exists
     this.ensureChunksAround(this.player.x);
@@ -644,6 +760,73 @@ class GameScene extends Phaser.Scene {
       if (this.car.prompt) this.car.prompt.setPosition(this.car.sprite.x, this.car.sprite.y - 38).setVisible(this.nearCar && !this.car.mounted);
     }
 
+    // Spawn Hemuli periodically near player (cap at 1 active)
+    if (!this.isPaused && this.time.now >= (this._nextHemuliAt||0)) {
+      this._nextHemuliAt = this.time.now + 22000;
+      if ((this.hemulis?.countActive(true) || 0) < 1) {
+        this.trySpawnHemuliNearPlayer();
+      }
+    }
+
+    // Spawn Oppo periodically (cap at 3 active)
+    if (!this.isPaused && this.time.now >= (this._nextOppoAt||0)) {
+      this._nextOppoAt = this.time.now + Phaser.Math.Between(14000, 22000);
+      if ((this.oppos?.countActive(true) || 0) < 3) this.trySpawnOppoNearPlayer();
+    }
+
+    // Hemuli AI: fly and minigun-shoot at player with LOS, bullets don’t break blocks
+    this.hemulis?.children?.iterate?.((h)=>{
+      if (!h || !h.active) return;
+      // steer towards a point near the player
+      const targetX = this.player.x + (Math.random()*120-60);
+      const targetY = this.player.y - 30 + (Math.random()*40-20);
+      const dx = targetX - h.x, dy = targetY - h.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const nx = dx/d, ny = dy/d;
+      h.setVelocity(nx*120, ny*120);
+      // face direction
+      if (h.setFlipX) h.setFlipX(nx<0);
+      // shoot if LOS
+      const tx = this.player.x, ty = this.player.y;
+      const sdx = tx - h.x, sdy = ty - h.y; const dist = Math.hypot(sdx,sdy);
+      if (dist < 18*TILE) {
+        const steps = Math.ceil(dist / TILE);
+        let blocked=false; for (let i=1;i<=steps;i++){
+          const ix = h.x + sdx*i/steps, iy = h.y + sdy*i/steps;
+          const itx = Math.floor(ix/TILE), ity = Math.floor(iy/TILE);
+          if (this.hasSolidBlockAt(itx,ity)) { blocked = true; break; }
+        }
+        if (!blocked && (!h._nextFireAt || this.time.now >= h._nextFireAt)){
+          h._nextFireAt = this.time.now + 101; // ~9.9 / second
+          const sx = h.x, sy = h.y;
+          const b = this.spawnBulletFrom(sx, sy, tx, ty, { speed: 820, lifeTiles: 12, spread: 0.07, noBlockDamage: true });
+          b.setData('fromHemuli', true);
+        }
+      }
+    });
+
+    // Oppo AI: hop toward player; if has bounce shoes, jumps higher and kills on touch
+    this.oppos?.children?.iterate?.((o)=>{
+      if (!o || !o.body) return;
+      if (o._webbedUntil && this.time.now < o._webbedUntil) { o.setVelocity(0,0); return; } else if (o._webbedUntil && this.time.now >= o._webbedUntil) { o._webbedUntil = 0; }
+      const dir = Math.sign(this.player.x - o.x) || (Math.random()<0.5?-1:1);
+      o.setVelocityX(dir * 110);
+      if ((o.body.blocked.down || o.body.touching.down) && (!o._nextHopAt || this.time.now >= o._nextHopAt)) {
+        o._nextHopAt = this.time.now + Phaser.Math.Between(600, 1100);
+        const high = o.getData('bounceShoes') ? -520 : -320;
+        o.setVelocityY(high);
+      }
+      o.setFlipX(dir<0);
+    });
+
+    // Update plane proximity and prompt
+    if (this.plane?.sprite) {
+      const dx = Math.abs(this.player.x - this.plane.sprite.x);
+      const dy = Math.abs(this.player.y - this.plane.sprite.y);
+      this.nearPlane = (dx < 120 && dy < 90);
+      if (this.plane.prompt) this.plane.prompt.setPosition(this.plane.sprite.x, this.plane.sprite.y - 42).setVisible(this.nearPlane && !this.plane.mounted);
+    }
+
     // Car turrets: auto-target mobs with line-of-sight (no shooting through walls)
     // If mounted, attach car to player for clear feedback
     if (this.car?.mounted && this.car.sprite) {
@@ -654,7 +837,7 @@ class GameScene extends Phaser.Scene {
     }
 
     if (this.car?.mounted && this.car.turrets?.length) {
-      const groups = [this.slimes, this.birds, this.zombies];
+      const groups = [this.slimes, this.birds, this.zombies, this.hemulis, this.oppos];
       const range2 = (16*TILE)*(16*TILE);
       for (const t of this.car.turrets) {
         let best=null, bestD2=range2;
@@ -682,6 +865,55 @@ class GameScene extends Phaser.Scene {
           }
         }
       }
+    }
+
+    // Plane turrets + attach to player when mounted
+    if (this.plane?.mounted && this.plane.sprite) {
+      this.plane.sprite.setPosition(this.player.x, this.player.y+8);
+      const [tL, tR] = this.plane.turrets || [];
+      if (tL) tL.setPosition(this.plane.sprite.x-28, this.plane.sprite.y-14).setVisible(true);
+      if (tR) tR.setPosition(this.plane.sprite.x+28, this.plane.sprite.y-14).setVisible(true);
+    }
+    if (this.plane?.mounted && this.plane.turrets?.length) {
+      const groups = [this.slimes, this.birds, this.zombies, this.hemulis, this.oppos];
+      const range2 = (18*TILE)*(18*TILE);
+      for (const t of this.plane.turrets) {
+        let best=null, bestD2=range2;
+        for (const g of groups) {
+          g?.children?.iterate?.(e=>{
+            if (!e || !e.active) return;
+            const dx=e.x - t.x, dy=e.y - t.y; const d2=dx*dx+dy*dy; if (d2>=bestD2) return;
+            const steps = Math.ceil(Math.hypot(dx,dy)/TILE);
+            let blocked=false; for (let i=1;i<=steps;i++){
+              const ix = t.x + dx*i/steps, iy = t.y + dy*i/steps;
+              const tx = Math.floor(ix/TILE), ty = Math.floor(iy/TILE);
+              if (this.hasSolidBlockAt(tx,ty)) { blocked=true; break; }
+            }
+            if (!blocked) { best=e; bestD2=d2; }
+          });
+        }
+        if (best) {
+          const ang = Math.atan2(best.y - t.y, best.x - t.x);
+          t.setRotation(ang);
+          if (!t._nextFireAt || this.time.now >= t._nextFireAt) {
+            t._nextFireAt = this.time.now + 90; // faster than car
+            const sx = t.x + Math.cos(ang)*18, sy = t.y + Math.sin(ang)*6;
+            this.spawnBulletFrom(sx, sy, best.x, best.y, { speed: 820, lifeTiles: 8, spread: 0.08, noBlockDamage: true, isMinigun: true });
+          }
+        }
+      }
+    }
+
+    // Position and orient weapon sprite to aim at pointer
+    if (this.weaponSprite) {
+      const handOffsetX = this.player.flipX ? -10 : 10;
+      const handOffsetY = 4;
+      this.weaponSprite.setPosition(this.player.x + handOffsetX, this.player.y + handOffsetY);
+      const p = this.input.activePointer; const wp = this.cameras.main.getWorldPoint(p.x, p.y);
+      const ang = Math.atan2(wp.y - this.weaponSprite.y, wp.x - this.weaponSprite.x);
+      this.weaponSprite.setRotation(ang);
+      // When facing left, optionally mirror to keep sprite upright for some assets
+      this.weaponSprite.setFlipY(false);
     }
 
     // Aim any placed cannons toward pointer for visual feedback
@@ -725,8 +957,11 @@ class GameScene extends Phaser.Scene {
   const right = this.cursors.right.isDown || this.keys.D.isDown || this.touchState.right;
   const jump = this.cursors.up.isDown || this.keys.W.isDown || this.keys.SPACE.isDown || this.touchState.jump;
     const baseSpeed = 220;
-    const riding = this.moped?.mounted;
-    const speed = riding ? baseSpeed * (this.moped.speedMult * (this._mopedBoost?1.25:1)) : baseSpeed;
+  const ridingMoped = this.moped?.mounted;
+  const ridingPlane = this.plane?.mounted;
+  let speed = baseSpeed;
+  if (ridingPlane) speed = baseSpeed * (this.plane.speedMult || 2.2);
+  else if (ridingMoped) speed = baseSpeed * (this.moped.speedMult * (this._mopedBoost?1.25:1));
 
   if (left) { this.player.setVelocityX(-speed); this.player.setFlipX(true); }
   else if (right) { this.player.setVelocityX(speed); this.player.setFlipX(false); }
@@ -735,7 +970,8 @@ class GameScene extends Phaser.Scene {
     if (this.state.canFly) {
   if (jump) this.player.setVelocityY(-280);
     } else if (jump && onGround) {
-      this.player.setVelocityY(-440);
+      const jv = this.state.bounceShoes ? -560 : -440;
+      this.player.setVelocityY(jv);
       this.player.setScale(1.05,0.95); this.time.delayedCall(120,()=>this.player.setScale(1,1));
     }
 
@@ -847,6 +1083,27 @@ class GameScene extends Phaser.Scene {
     if (this.time.now >= this._nextBossSpawnAt) {
       this._nextBossSpawnAt = this.time.now + 40000;
       this.trySpawnBossNearPlayer();
+    }
+
+    // Update boss eye tracking
+    if (this.bosses) {
+      this.bosses.children.iterate((b)=>{
+        if (!b || !b._eyes) return;
+  const eyes = b._eyes;
+  const aim = { x: this.player.x - b.x, y: this.player.y - b.y };
+  const len = Math.hypot(aim.x, aim.y) || 1;
+  const nx = aim.x / len, ny = aim.y / len;
+  // Eyeball radius (white) ~14px, pupil radius ~5px => max offset ~9px
+  const maxOffset = Math.min(eyes.radius ?? 8, 9);
+  // Left eye
+  const lx = b.x + eyes.offL.x + nx * maxOffset;
+  const ly = b.y + eyes.offL.y + ny * maxOffset;
+  eyes.L.setPosition(lx, ly);
+  // Right eye
+  const rx = b.x + eyes.offR.x + nx * maxOffset;
+  const ry = b.y + eyes.offR.y + ny * maxOffset;
+  eyes.R.setPosition(rx, ry);
+      });
     }
 
     // Cactus contact damage (tick at most twice per second)
@@ -1059,6 +1316,39 @@ class GameScene extends Phaser.Scene {
     }, null, this);
     this.car = { sprite: car, turrets: [turretL, turretR], mounted: false, zone, prompt: this.car.prompt||null };
   }
+
+  // Plane helpers
+  createPlane(){
+    const tx = 22, ty = SURFACE_Y - 2;
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    const plane = this.add.image(x, y, 'tex_moped_base').setDepth(4).setScale(2.4,1.2).setTint(0x99ccff);
+    const turretL = this.add.image(x-28, y-14, 'tex_cannon_barrel').setOrigin(0.1,0.5).setScale(1.0).setDepth(5);
+    const turretR = this.add.image(x+28, y-14, 'tex_cannon_barrel').setOrigin(0.1,0.5).setScale(1.0).setDepth(5);
+    const zone = this.add.zone(x, y, 120, 60);
+    this.physics.world.enable(zone, Phaser.Physics.Arcade.STATIC_BODY);
+    this.physics.add.overlap(this.player, zone, ()=>{
+      this.nearPlane = true;
+      if (!this.plane.prompt) this.plane.prompt = this.add.text(0,0,'F/Alas: Lentokone', { fontFamily:'monospace', fontSize:'14px', color:'#fff', backgroundColor:'#0008' }).setPadding(4,2).setDepth(1000);
+      this.plane.prompt.setPosition(plane.x, plane.y - 42).setVisible(!this.plane.mounted);
+    }, null, this);
+    this.plane = { sprite: plane, turrets: [turretL, turretR], mounted: false, zone, prompt: this.plane.prompt||null, speedMult: this.plane.speedMult||2.2 };
+  }
+  togglePlane(){
+    this.plane.mounted = !this.plane.mounted;
+    if (this.plane.mounted) {
+      this.plane.prompt?.setVisible(false);
+      this.plane.sprite.setPosition(this.player.x, this.player.y+8);
+      for (const t of this.plane.turrets) t.setPosition(this.plane.sprite.x + (t===this.plane.turrets[0]?-28:28), this.plane.sprite.y-14).setVisible(true).setDepth(5);
+      this.player.setVisible(true); this.player.setDepth(6);
+      this.plane.sprite.setDepth(4);
+      this.showToast('Lentokone: Kyytiin');
+    } else {
+      this.plane.sprite.setPosition(this.player.x, this.player.y+8);
+      for (const t of this.plane.turrets) t.setPosition(this.plane.sprite.x + (t===this.plane.turrets[0]?-28:28), this.plane.sprite.y-14).setVisible(true);
+      this.player.setVisible(true); this.player.setDepth(6);
+      this.showToast('Lentokone: Poistuit');
+    }
+  }
   toggleCar(){
     this.car.mounted = !this.car.mounted;
     if (this.car.mounted) {
@@ -1101,7 +1391,12 @@ class GameScene extends Phaser.Scene {
   }
   restartGame(){
     // Reset save and reload scene
-    try { localStorage.removeItem('UAG_save'); } catch(e) {}
+    try {
+      const wid = localStorage.getItem('UAG_worldCurrent');
+      if (wid) localStorage.removeItem(`UAG_save_${wid}`);
+      // Also clear legacy key if present
+      localStorage.removeItem('UAG_save');
+    } catch(e) {}
     this.scene.restart();
     // After restart, started should be false so start screen shows again (handled in create)
     const startEl = document.getElementById('startScreen');
@@ -1177,7 +1472,7 @@ class GameScene extends Phaser.Scene {
       if (this.hook.active) this.cancelGrapple(); else this.tryGrapple(pointer);
       return;
     }
-    if (this.tools.equipped === 'pistol' || this.tools.equipped === 'minigun' || this.tools.equipped === 'sniper' || this.tools.equipped === 'cannon' || this.tools.equipped === 'bazooka') {
+  if (this.tools.equipped === 'pistol' || this.tools.equipped === 'minigun' || this.tools.equipped === 'sniper' || this.tools.equipped === 'cannon' || this.tools.equipped === 'bazooka' || this.tools.equipped === 'grenade' || this.tools.equipped === 'nuke' || this.tools.equipped === 'plane') {
       if (this.tools.equipped === 'pistol') {
         this.shootBullet(pointer);
       } else if (this.tools.equipped === 'minigun') {
@@ -1186,6 +1481,12 @@ class GameScene extends Phaser.Scene {
         this.fireCannon(pointer);
       } else if (this.tools.equipped === 'bazooka') {
         this.fireBazooka(pointer);
+      } else if (this.tools.equipped === 'grenade') {
+        this.throwGrenade(pointer);
+      } else if (this.tools.equipped === 'nuke') {
+        this.fireNuke(pointer);
+      } else if (this.tools.equipped === 'plane') {
+        this.firePlaneGun(pointer);
       } else {
         this.shootSniper(pointer);
       }
@@ -1513,6 +1814,215 @@ class GameScene extends Phaser.Scene {
     rocket.preUpdate = function(t, dt){ origPreUpdate.call(this, t, dt); };
   }
 
+  // Hemuli spawn logic
+  trySpawnHemuliNearPlayer(){
+  // ensure only one active Hemuli exists
+  if ((this.hemulis?.countActive(true) || 0) >= 1) return null;
+    const px = this.player.x, py = this.player.y;
+    // pick a side offset
+    const side = Math.random()<0.5?-1:1;
+    const x = px + side * (10 + Math.random()*6) * TILE;
+    const y = py - (2 + Math.random()*2) * TILE;
+    const h = this.hemulis.create(x, y, 'tex_hemuli');
+    h.setDepth(5); h.setCircle(8, 5, 5); h.body.allowGravity = false;
+    return h;
+  }
+
+  // Oppo spawn logic: near player, sometimes with bounce shoes
+  trySpawnOppoNearPlayer(){
+    const px = this.player.x, py = this.player.y;
+    const side = Math.random()<0.5?-1:1;
+    const x = px + side * (8 + Math.random()*8) * TILE;
+    const y = py - (0.5 + Math.random()*1) * TILE;
+    const o = this.oppos.create(x, y, 'tex_oppo');
+    o.setDepth(5); o.setBounce(0.12);
+    o.body.setSize(20, 24).setOffset(4,2);
+    // 40% chance to have bounce shoes
+    const hasShoes = Math.random() < 0.4;
+    o.setData('bounceShoes', hasShoes);
+    if (hasShoes) o.setTint(0x77ff77);
+    return o;
+  }
+
+  // Grenade: throw, then explode after ~4.4s; destroys exactly 123 tiles (diamond R=7 + 10 cells from R=8 ring)
+  throwGrenade(pointer){
+    if (this._grenadeCd && this._grenadeCd > this.time.now) return;
+    this._grenadeCd = this.time.now + 500; // small throw cadence
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const dx = wp.x - this.player.x, dy = wp.y - this.player.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const nx = dx / dist, ny = dy / dist;
+    const speed = 360;
+    const gr = this.physics.add.image(this.player.x, this.player.y-8, 'tex_grenade');
+    gr.setDepth(6); gr.setBounce(0.35); gr.setCollideWorldBounds(true);
+    this.physics.add.collider(gr, this.platforms);
+    gr.setVelocity(nx*speed, ny*speed - 260); // give some arc up
+    gr.setDrag(22, 0);
+  gr._explodeAt = this.time.now + 4400; // ~4.4s
+    gr._t = this.time.now;
+    const scene = this;
+    gr.preUpdate = function(t, dt){
+      Phaser.Physics.Arcade.Image.prototype.preUpdate.call(this, t, dt);
+      if (t >= this._explodeAt) {
+        const gx = this.x, gy = this.y; this.destroy();
+        scene.explodeGrenadeAt(gx, gy);
+      }
+    };
+  }
+
+  explodeGrenadeAt(x, y){
+    const cx = Math.floor(x / TILE);
+    const cy = Math.floor(y / TILE);
+    // Build diamond radius R=7 (113 tiles), then add 10 cells from the R=8 ring to reach 123 tiles
+    const toClear = new Set();
+    const add = (tx,ty)=> toClear.add(`${tx},${ty}`);
+    const R = 7;
+    for (let dx=-R; dx<=R; dx++){
+      const rem = R - Math.abs(dx);
+      for (let dy=-rem; dy<=rem; dy++) add(cx+dx, cy+dy);
+    }
+    // Collect R=8 ring cells and add 10 evenly spaced ones
+    const ring8 = [];
+    for (let dx=-8; dx<=8; dx++){
+      const dy = 8 - Math.abs(dx);
+      if (dy === 0) ring8.push([dx,0]); else { ring8.push([dx,dy]); ring8.push([dx,-dy]); }
+    }
+    const step = 3; // ~32/10 ≈ 3
+    let added = 0;
+    for (let i=0; i<ring8.length && added<10; i+=step){
+      const [dx,dy] = ring8[i];
+      const k = `${cx+dx},${cy+dy}`;
+      if (!toClear.has(k)) { toClear.add(k); added++; }
+    }
+
+    // Flash FX over approximate bounding box (17x17 tiles)
+    const gfx = this.add.graphics().setDepth(800);
+    gfx.fillStyle(0xffee66, 0.30);
+    gfx.fillRect((cx-8)*TILE, (cy-8)*TILE, 17*TILE, 17*TILE);
+    this.time.delayedCall(120, ()=> gfx.destroy());
+
+    // Clear blocks and apply drops
+    for (const key of Array.from(toClear)){
+      const [sx,sy] = key.split(',');
+      const tx = Number(sx), ty = Number(sy);
+      const spr = this.blocks.get(key);
+      if (!spr) continue;
+      const type = spr.getData('type');
+      if (type === 'trunk') this.dropWood(spr.x, spr.y);
+      else if (type === 'ground') { if (Math.random() < 0.30) this.dropCoin(spr.x, spr.y); }
+      else if (type === 'stone') { if (Math.random() < 0.85) this.dropStone(spr.x, spr.y); }
+      if (type === 'plank') {
+        this.worldDiff.placed = this.worldDiff.placed.filter(p=>!(p.tx===tx && p.ty===ty));
+      } else {
+        if (!this.worldDiff.removed.includes(key)) this.worldDiff.removed.push(key);
+      }
+      spr.destroy();
+      this.blocks.delete(key);
+      if (type === 'cactus') this.cactusTiles.delete(key);
+      this.tryFlowWaterFrom(tx, ty-1);
+    }
+
+  // Damage enemies within AABB of the diamond (R≈8)
+  const xMin=(cx-8)*TILE, xMax=(cx+9)*TILE, yMin=(cy-8)*TILE, yMax=(cy+9)*TILE;
+    const inBox=(e)=> e && e.active && e.x>=xMin && e.x< xMax && e.y>=yMin && e.y< yMax;
+  this.birds?.children?.iterate?.(b=>{ if (inBox(b)) b.destroy(); });
+  this.hemulis?.children?.iterate?.(h=>{ if (inBox(h)) h.destroy(); });
+    this.slimes?.children?.iterate?.(s=>{ if (inBox(s)) { const ex=s.x, ey=s.y; s.destroy(); this.dropCoins(ex,ey,3); } });
+    this.zombies?.children?.iterate?.(z=>{ if (inBox(z)) { const ex=z.x, ey=z.y; z.destroy(); this.dropCoins(ex,ey,2); } });
+    this.clones?.children?.iterate?.(c=>{ if (inBox(c)) c.destroy(); });
+    this.bosses?.children?.iterate?.(bs=>{ if (inBox(bs)) this.damageBoss(bs, 2); });
+
+    this.saveState();
+  }
+
+  // Nuke: instant detonation at cursor, destroys exactly 111 blocks
+  fireNuke(pointer){
+    if (this._nukeCd && this._nukeCd > this.time.now) return;
+    this._nukeCd = this.time.now + 2000;
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    this.explodeNukeAt(wp.x, wp.y);
+  }
+
+  explodeNukeAt(x, y){
+    const cx = Math.floor(x / TILE);
+    const cy = Math.floor(y / TILE);
+    const toClear = new Set();
+    const add=(tx,ty)=> toClear.add(`${tx},${ty}`);
+    // Diamond radius R=7 (|dx|+|dy|<=R) yields 113 tiles; remove 2 to make 111
+    const R=7;
+    for (let dx=-R; dx<=R; dx++){
+      const rem = R - Math.abs(dx);
+      for (let dy=-rem; dy<=rem; dy++) add(cx+dx, cy+dy);
+    }
+    // Trim two symmetric edge tiles deterministically
+    toClear.delete(`${cx+R},${cy}`);
+    toClear.delete(`${cx-R},${cy}`);
+
+    // FX
+    const gfx = this.add.graphics().setDepth(800);
+    gfx.fillStyle(0xffef6e, 0.30);
+    gfx.fillCircle(cx*TILE+TILE/2, cy*TILE+TILE/2, (R+0.6)*TILE);
+    this.time.delayedCall(160, ()=> gfx.destroy());
+
+    // Clear blocks with drops and persistence
+    for (const key of Array.from(toClear)){
+      const [sx,sy] = key.split(',');
+      const tx = Number(sx), ty = Number(sy);
+      const spr = this.blocks.get(key);
+      if (!spr) continue;
+      const type = spr.getData('type');
+      if (type === 'trunk') this.dropWood(spr.x, spr.y);
+      else if (type === 'ground') { if (Math.random() < 0.35) this.dropCoin(spr.x, spr.y); }
+      else if (type === 'stone') { if (Math.random() < 0.9) this.dropStone(spr.x, spr.y); }
+      if (type === 'plank') {
+        this.worldDiff.placed = this.worldDiff.placed.filter(p=>!(p.tx===tx && p.ty===ty));
+      } else {
+        if (!this.worldDiff.removed.includes(key)) this.worldDiff.removed.push(key);
+      }
+      spr.destroy();
+      this.blocks.delete(key);
+      if (type === 'cactus') this.cactusTiles.delete(key);
+      this.tryFlowWaterFrom(tx, ty-1);
+    }
+
+    // Damage enemies within AABB of diamond
+    const xMin=(cx-7)*TILE, xMax=(cx+8)*TILE, yMin=(cy-7)*TILE, yMax=(cy+8)*TILE;
+    const inBox=(e)=> e && e.active && e.x>=xMin && e.x< xMax && e.y>=yMin && e.y< yMax;
+  this.birds?.children?.iterate?.(b=>{ if (inBox(b)) b.destroy(); });
+  this.hemulis?.children?.iterate?.(h=>{ if (inBox(h)) h.destroy(); });
+  this.oppos?.children?.iterate?.(o=>{ if (inBox(o)) { const ex=o.x, ey=o.y; o.destroy(); this.dropCoins(ex,ey,2); if (Math.random()<0.18 && !this.state.bounceShoes) this.spawnPickup(ex, ey, 'tex_boots'); } });
+    this.slimes?.children?.iterate?.(s=>{ if (inBox(s)) { const ex=s.x, ey=s.y; s.destroy(); this.dropCoins(ex,ey,5); } });
+    this.zombies?.children?.iterate?.(z=>{ if (inBox(z)) { const ex=z.x, ey=z.y; z.destroy(); this.dropCoins(ex,ey,4); } });
+    this.clones?.children?.iterate?.(c=>{ if (inBox(c)) c.destroy(); });
+    this.bosses?.children?.iterate?.(bs=>{ if (inBox(bs)) this.damageBoss(bs, 8); });
+
+    this.saveState();
+    this.showToast?.('Ydinase: 111 plokkia tuhottu');
+  }
+
+  // Plane gun: shoots a very long-range bullet (1111 tiles), no block damage
+  firePlaneGun(pointer){
+    if (this._planeCd && this._planeCd > this.time.now) return;
+    this._planeCd = this.time.now + 150;
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const sx = this.player.x, sy = this.player.y;
+    const dx = wp.x - sx, dy = wp.y - sy;
+    const d = Math.hypot(dx, dy) || 1;
+    const nx = dx/d, ny = dy/d;
+    const bullet = this.bullets.create(sx, sy, 'tex_bullet');
+    const speed = 1200;
+    bullet.setVelocity(nx*speed, ny*speed);
+    bullet.setRotation(Math.atan2(ny, nx));
+    bullet.setData('noBlockDamage', true);
+    // lifetime for 1111 tiles
+    const lifeMs = (1111 * TILE / speed) * 1000;
+    this.time.delayedCall(lifeMs, ()=>{ if (bullet.active) bullet.destroy(); });
+    // do not remove cannons
+    bullet._lastCheck = 0;
+    const origPreUpdate = Phaser.Physics.Arcade.Sprite.prototype.preUpdate;
+    bullet.preUpdate = function(t, dt){ origPreUpdate.call(this, t, dt); };
+  }
+
   explodeAt(x, y){
     // 6x6 tile area centered around impact (even size -> skew one tile to negative side)
     const cx = Math.floor(x / TILE);
@@ -1552,7 +2062,9 @@ class GameScene extends Phaser.Scene {
 
     // Damage/kill enemies within the same 6x6 area (AABB check)
     const inBox = (e)=> e && e.active && e.x >= txMin*TILE && e.x < (txMax+1)*TILE && e.y >= tyMin*TILE && e.y < (tyMax+1)*TILE;
-    this.birds?.children?.iterate?.(b=>{ if (inBox(b)) b.destroy(); });
+  this.birds?.children?.iterate?.(b=>{ if (inBox(b)) b.destroy(); });
+  this.hemulis?.children?.iterate?.(h=>{ if (inBox(h)) h.destroy(); });
+  this.oppos?.children?.iterate?.(o=>{ if (inBox(o)) { const ex=o.x, ey=o.y; o.destroy(); this.dropCoins(ex,ey,2); } });
     this.slimes?.children?.iterate?.(s=>{ if (inBox(s)) { const ex=s.x, ey=s.y; s.destroy(); this.dropCoins(ex,ey,3); } });
     this.zombies?.children?.iterate?.(z=>{ if (inBox(z)) { const ex=z.x, ey=z.y; z.destroy(); this.dropCoins(ex,ey,2); } });
   this.bosses?.children?.iterate?.(bs=>{ if (inBox(bs)) { this.damageBoss(bs, 2); } });
@@ -2031,6 +2543,9 @@ class GameScene extends Phaser.Scene {
     if (gem.texture.key === 'tex_red') {
   this.state.canFly = true;
   this.showToast('LENTO AVATTU! Pidä Ylös/Space lentääksesi');
+    } else if (gem.texture.key === 'tex_boots') {
+      this.state.bounceShoes = true;
+      this.showToast('Pomppukengät saatu! Korkeampi hyppy käytössä');
     } else {
   this.state.coins += 1;
     }
@@ -2054,18 +2569,45 @@ class GameScene extends Phaser.Scene {
     slots[3].textContent = `Kolikot: ${this.state.coins}`;
     slots[4].textContent = this.state.canFly ? 'Lento ✓' : '';
     // Show equipped tool
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu' };
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu' };
   const eq = this.tools.equipped;
   const suffix = eq === 'cannon' ? ` (${this.tools.cannonMode==='minigun'?'Minigun':'Tarkka'})` : '';
   const modeLabel = this.mode?.current==='classic' ? 'Klassinen' : (this.mode.current==='galactic'?'Star':'Spider');
   slots[5].textContent = `Työkalu: ${toolNames[eq]}${suffix}  |  Tila: ${modeLabel}`;
   }
 
+  updateWeaponSprite(){
+    if (!this.weaponSprite) return;
+    const eq = this.tools?.equipped;
+    let key = null;
+    if (eq === 'pistol') key = 'tex_weapon_pistol';
+    else if (eq === 'minigun') key = 'tex_weapon_minigun';
+    else if (eq === 'sniper') key = 'tex_weapon_sniper';
+    else if (eq === 'bazooka') key = 'tex_weapon_bazooka';
+    else if (eq === 'knife') key = 'tex_weapon_knife';
+    else if (eq === 'grenade') key = 'tex_grenade';
+    else if (eq === 'nuke') key = 'tex_nuke';
+    // Show cannon as a small barrel when selected (optional)
+    else if (eq === 'cannon') key = 'tex_cannon_base';
+    // Hide for non-weapon tools
+    if (key) {
+      this.weaponSprite.setTexture(key).setVisible(true);
+      // Adjust origin for round items
+      if (eq === 'grenade' || eq === 'nuke') this.weaponSprite.setOrigin(0.5,0.5);
+      else this.weaponSprite.setOrigin(0.15,0.5);
+      // Slight scale tweaks
+      const scale = (eq==='nuke') ? 0.9 : (eq==='grenade' ? 0.9 : 1);
+      this.weaponSprite.setScale(scale);
+    } else {
+      this.weaponSprite.setVisible(false);
+    }
+  }
+
   updateToolSelect(){
     const select = document.getElementById('toolSelect');
     if (!select) return;
     select.innerHTML = '';
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu' };
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu' };
     for (const tool in this.tools.owned) {
       if (this.tools.owned[tool]) {
         const option = document.createElement('option');
@@ -2078,6 +2620,7 @@ class GameScene extends Phaser.Scene {
     select.addEventListener('change', () => {
       this.tools.equipped = select.value;
       this.updateInventoryUI();
+      this.updateWeaponSprite?.();
       this.saveState();
     });
   }
@@ -2364,7 +2907,11 @@ class GameScene extends Phaser.Scene {
     // Pickups
     for (const p of data.pickups) p?.destroy();
     // Enemies
-  for (const e of data.enemies) e?.destroy();
+    for (const e of data.enemies) {
+      if (!e) continue;
+      if (e._eyes) { e._eyes.L?.destroy(); e._eyes.R?.destroy(); }
+      e.destroy();
+    }
 
     this.chunks.delete(cx);
     this.loadedChunks.delete(cx);
@@ -2500,6 +3047,15 @@ class GameScene extends Phaser.Scene {
     // big hitbox covering 4x4 tiles
     s.body.setSize(TILE*4-6, TILE*4-6).setOffset(3,3);
     s._hp = 6; // 6 hearts
+  // Eye pupils as separate images to follow player
+  // compute precise eye centers from texture (0.32/0.68, 0.28 of sprite)
+  const bw = TILE*4, bh = TILE*4;
+  const eyeOffsetL = { x: bw*(0.32 - 0.5), y: bh*(0.28 - 0.5) };
+  const eyeOffsetR = { x: bw*(0.68 - 0.5), y: bh*(0.28 - 0.5) };
+  const pupilL = this.add.image(s.x + eyeOffsetL.x, s.y + eyeOffsetL.y, 'tex_pupil').setDepth(7);
+  const pupilR = this.add.image(s.x + eyeOffsetR.x, s.y + eyeOffsetR.y, 'tex_pupil').setDepth(7);
+  // radius 8px keeps pupils inside 14px eyeballs (pupil radius ~5)
+  s._eyes = { L: pupilL, R: pupilR, offL: eyeOffsetL, offR: eyeOffsetR, radius: 8 };
     // add to chunk enemies for lifecycle
     const cx = Math.floor(tx / CHUNK_W);
     this.chunks.get(cx)?.enemies.push(s);
@@ -2516,7 +3072,8 @@ class GameScene extends Phaser.Scene {
     boss.setTintFill(0xffffff);
     this.time.delayedCall(60, ()=> boss.clearTint());
     if (boss._hp <= 0) {
-      const x=boss.x, y=boss.y; boss.destroy();
+  const x=boss.x, y=boss.y; if (boss._eyes){ boss._eyes.L?.destroy(); boss._eyes.R?.destroy(); }
+  boss.destroy();
       // loot shower
       this.dropCoins(x, y, 8);
       // rare red gem
@@ -2713,18 +3270,41 @@ class GameScene extends Phaser.Scene {
   }
 
   saveState(){
-  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, torches: this.torchPositions, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic' };
-    try { localStorage.setItem('UAG_save', JSON.stringify(data)); } catch(e) {}
+  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, bounceShoes: this.state.bounceShoes, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, torches: this.torchPositions, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic' };
+    try {
+      const wid = window.localStorage.getItem('UAG_worldCurrent') || 'world-1';
+      localStorage.setItem(`UAG_save_${wid}`, JSON.stringify(data));
+    } catch(e) {}
   }
 
   loadState(){
     try {
-      const raw = localStorage.getItem('UAG_save');
+      // ensure current world exists
+      let wid = localStorage.getItem('UAG_worldCurrent');
+      if (!wid) {
+        // bootstrap world list
+        const listRaw = localStorage.getItem('UAG_worlds');
+        let worlds = [];
+        try { worlds = listRaw ? JSON.parse(listRaw) : []; } catch(e) { worlds = []; }
+        wid = 'world-1';
+        if (!worlds.includes(wid)) { worlds.push(wid); localStorage.setItem('UAG_worlds', JSON.stringify(worlds)); }
+        localStorage.setItem('UAG_worldCurrent', wid);
+      }
+      let raw = localStorage.getItem(`UAG_save_${wid}`);
+      // Migration: if no world-specific save but legacy save exists, adopt it
+      if (!raw) {
+        const legacy = localStorage.getItem('UAG_save');
+        if (legacy) {
+          try { localStorage.setItem(`UAG_save_${wid}`, legacy); } catch(e) {}
+          raw = legacy;
+        }
+      }
       if (!raw) return;
       const d = JSON.parse(raw);
       if (typeof d.health === 'number') this.state.health = d.health;
       if (typeof d.coins === 'number') this.state.coins = d.coins;
-      if (typeof d.canFly === 'boolean') this.state.canFly = d.canFly;
+  if (typeof d.canFly === 'boolean') this.state.canFly = d.canFly;
+  if (typeof d.bounceShoes === 'boolean') this.state.bounceShoes = d.bounceShoes;
       if (d.inv) {
         this.inv.wood = d.inv.wood || 0;
         this.inv.plank = d.inv.plank || 0;
@@ -2751,6 +3331,12 @@ class GameScene extends Phaser.Scene {
   if (!this.tools.owned?.knife) this.tools.owned.knife = true;
   if (!this.tools.owned?.sniper) this.tools.owned.sniper = true;
   if (!this.tools.owned?.bazooka) this.tools.owned.bazooka = true;
+  // Ensure grenade exists for older saves
+  if (!this.tools.owned?.grenade) this.tools.owned.grenade = true;
+  // Ensure nuke exists for older saves
+  if (!this.tools.owned?.nuke) this.tools.owned.nuke = true;
+  // Ensure plane exists for older saves
+  if (!this.tools.owned?.plane) this.tools.owned.plane = true;
   if (!this.tools.owned?.cloner) this.tools.owned.cloner = true;
   if (!this.tools.owned?.slimecloner) this.tools.owned.slimecloner = true;
   if (!this.tools.owned?.torch) this.tools.owned.torch = true;
@@ -2765,6 +3351,7 @@ class GameScene extends Phaser.Scene {
     } catch(e) {}
   // Update tool select after loading
   this.updateToolSelect();
+  this.updateWeaponSprite?.();
   // Update moped after load
   this.updateMopedAppearance?.();
   }
@@ -2861,10 +3448,10 @@ class GameScene extends Phaser.Scene {
   // Tool helpers
   tryEquipTool(tool){
     if (!this.tools.owned[tool]) { this.showToast('Ei ostettu'); return; }
-    this.tools.equipped = tool; this.updateInventoryUI(); this.saveState();
+  this.tools.equipped = tool; this.updateInventoryUI(); this.updateWeaponSprite?.(); this.saveState();
   }
   cycleTool(){
-  const order = ['hand','wooden','stone','iron','pistol','cannon','minigun','knife','sniper','bazooka','hook','cloner','teleport','slimecloner','torch'];
+  const order = ['hand','wooden','stone','iron','pistol','cannon','minigun','knife','sniper','bazooka','grenade','nuke','plane','hook','cloner','teleport','slimecloner','torch'];
   if (!this.tools.owned?.hook) this.tools.owned.hook = true;
     let idx = order.indexOf(this.tools.equipped);
     for (let i=1;i<=order.length;i++){
@@ -2977,9 +3564,87 @@ window.addEventListener('load', () => {
   if (s.state.coins >= 10) { s.state.coins -= 10; s.tools.owned.pistol = true; s.updateUI(); s.updateToolSelect(); s.saveState(); }
   });
 
+  // Bounce shoes purchases
+  document.getElementById('buyBoots')?.addEventListener('click', () => {
+    const s = window.gameScene; if (!s) return;
+    if (!s.state.bounceShoes && s.state.coins >= 8) {
+      s.state.coins -= 8; s.state.bounceShoes = true; s.updateUI(); s.saveState(); s.showToast?.('Pomppukengät ostettu!');
+    }
+  });
+  document.getElementById('buyBoots2')?.addEventListener('click', () => {
+    const s = window.gameScene; if (!s) return;
+    if (!s.state.bounceShoes && s.state.coins >= 8) {
+      s.state.coins -= 8; s.state.bounceShoes = true; s.updateUI(); s.saveState(); s.showToast?.('Pomppukengät ostettu!');
+    }
+  });
+
   document.getElementById('closeMerchant')?.addEventListener('click', () => window.gameScene?.closeMerchant());
 
   // Settings: volumes and toggles
+  // Worlds UI
+  const worldSelect = document.getElementById('worldSelect');
+  const createWorld = document.getElementById('createWorld');
+  const deleteWorld = document.getElementById('deleteWorld');
+
+  function refreshWorldsUI(){
+    if (!worldSelect) return;
+    let worlds = [];
+    try { const r = localStorage.getItem('UAG_worlds'); worlds = r ? JSON.parse(r) : []; } catch(e) { worlds = []; }
+    if (!Array.isArray(worlds)) worlds = [];
+    let current = localStorage.getItem('UAG_worldCurrent') || worlds[0] || 'world-1';
+    if (!current) current = 'world-1';
+    // ensure current is in list
+    if (worlds.indexOf(current) === -1) { worlds.push(current); localStorage.setItem('UAG_worlds', JSON.stringify(worlds)); }
+    // populate
+    worldSelect.innerHTML = '';
+    for (const w of worlds){
+      const opt = document.createElement('option');
+      opt.value = w; opt.textContent = w;
+      if (w === current) opt.selected = true;
+      worldSelect.appendChild(opt);
+    }
+  }
+
+  refreshWorldsUI();
+
+  worldSelect?.addEventListener('change', (e)=>{
+    const wid = worldSelect.value;
+    localStorage.setItem('UAG_worldCurrent', wid);
+    // reload the page to load new world
+    location.reload();
+  });
+
+  createWorld?.addEventListener('click', ()=>{
+    // generate a new unique world id
+    let worlds = [];
+    try { const r = localStorage.getItem('UAG_worlds'); worlds = r ? JSON.parse(r) : []; } catch(e) { worlds = []; }
+    if (!Array.isArray(worlds)) worlds = [];
+    let i = 1; let wid;
+    do { wid = `world-${++i}`; } while (worlds.includes(wid));
+    worlds.push(wid);
+    localStorage.setItem('UAG_worlds', JSON.stringify(worlds));
+    localStorage.setItem('UAG_worldCurrent', wid);
+    refreshWorldsUI();
+    // clear in-memory state and reload to spawn fresh world
+    location.reload();
+  });
+
+  deleteWorld?.addEventListener('click', ()=>{
+    let worlds = [];
+    try { const r = localStorage.getItem('UAG_worlds'); worlds = r ? JSON.parse(r) : []; } catch(e) { worlds = []; }
+    const current = localStorage.getItem('UAG_worldCurrent');
+    if (!current) return;
+    // prevent deleting last world: ensure at least one remains
+    if (worlds.length <= 1) { alert('Et voi poistaa viimeistä maailmaa.'); return; }
+    // remove save and references
+    try { localStorage.removeItem(`UAG_save_${current}`); } catch(e) {}
+    worlds = worlds.filter(w=>w!==current);
+    localStorage.setItem('UAG_worlds', JSON.stringify(worlds));
+    const next = worlds[0];
+    localStorage.setItem('UAG_worldCurrent', next);
+    refreshWorldsUI();
+    location.reload();
+  });
   const musicVol = document.getElementById('musicVol');
   const sfxVol = document.getElementById('sfxVol');
   const showHearts = document.getElementById('showHearts');
