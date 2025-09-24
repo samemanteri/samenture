@@ -28,7 +28,10 @@
 <div id="settingsMenu" class="hidden">
   <label><input type="checkbox" id="toggleFly"> Salli lentäminen</label><br>
   <label><input type="checkbox" id="showHearts" checked> Näytä sydämet</label><br>
-  <!-- Äänet poistettu -->
+  <label><input type="checkbox" id="toggleBoots"> Pomppukengät (on/off)</label><br>
+  <strong>Äänet</strong><br>
+  <label><input type="checkbox" id="sfxMute"> Mykistä äänet</label><br>
+  <label>Efektien voimakkuus: <input type="range" id="sfxVol" min="0" max="1" step="0.01" value="0.8"></label>
   <label>Työkalu: <select id="toolSelect"></select></label>
   <hr>
   <strong>Mopo</strong><br>
@@ -49,6 +52,35 @@
   <label><input type="checkbox" id="eyesGlow"> Hohtavat silmät</label><br>
   <label>Silmien väri: <input type="color" id="eyeColor" value="#ffffff"></label><br>
   <label>Hiusten väri: <input type="color" id="hairColor" value="#222222"></label>
+  <hr>
+  <strong>Ninja-tila</strong><br>
+  <label><input type="checkbox" id="ninjaEnable"> Ninja käytössä (J: päälle/pois)</label><br>
+  <div id="ninjaRows">
+    <label>Miekan taso: 
+      <select id="ninjaSword">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+      </select>
+    </label>
+    <label>Heittoveitsi: 
+      <select id="ninjaKnife">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+      </select>
+    </label>
+    <label>Hyppyisku: 
+      <select id="ninjaStrike">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+      </select>
+    </label>
+  </div>
+  <label id="ninjaSwordRangeRow" style="display:none">Miekan etäisyys (palikkaa): 
+    <input type="number" id="ninjaSwordRange" min="1" max="6" step="1" value="2">
+  </label>
   <hr>
   <strong>Kauppias (asetuksista)</strong>
   <div class="merchant-inline">
@@ -136,7 +168,8 @@
 </div>
 
 <!-- Äänielementit poistettu -->
-
+<!-- 8-bit SFX engine -->
+<script src="sfx.js"></script>
 <script src="game.js"></script>
 
 <!-- Aloitusruutu -->
@@ -160,6 +193,10 @@
       <button id="btnResume">Jatka</button>
       <button id="btnRestart">Aloita alusta</button>
       <button id="btnPauseSettings">Asetukset</button>
+      <!-- Minigames -->
+      <button id="btnMiniMurder">Minipeli: Murhaajajahti</button>
+      <button id="btnMiniParkour">Minipeli: Parkour-kisa</button>
+  <button id="btnMiniDesert">Minipeli: Aavikkovaellus</button>
     </div>
     <small>Vinkki: Esc = tauko/jatka</small>
   </div>
@@ -182,5 +219,19 @@
   </div>
   
 </div>
+<script>
+  // Simple UI SFX: menu button clicks
+  const resumeAndClick = (name)=>{ try{ window.Sfx?.resume(); }catch(e){} try{ window.playSfx?.(name||'menu'); }catch(e){} };
+  document.getElementById('btnStart')?.addEventListener('click', ()=> resumeAndClick('menu'));
+  document.getElementById('btnStartSettings')?.addEventListener('click', ()=> resumeAndClick('menu'));
+  document.getElementById('btnResume')?.addEventListener('click', ()=> resumeAndClick('menu'));
+  document.getElementById('btnRestart')?.addEventListener('click', ()=> resumeAndClick('menu'));
+  document.getElementById('btnPauseSettings')?.addEventListener('click', ()=> resumeAndClick('menu'));
+  document.getElementById('bpClose')?.addEventListener('click', ()=> resumeAndClick('menu'));
+  document.getElementById('bpDump')?.addEventListener('click', ()=> resumeAndClick('menu'));
+  document.getElementById('btnMiniMurder')?.addEventListener('click', ()=> resumeAndClick('menu'));
+  document.getElementById('btnMiniParkour')?.addEventListener('click', ()=> resumeAndClick('menu'));
+  document.getElementById('btnMiniDesert')?.addEventListener('click', ()=> resumeAndClick('menu'));
+</script>
 </body>
 </html>

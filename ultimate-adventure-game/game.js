@@ -26,7 +26,6 @@ class GameScene extends Phaser.Scene {
   this.zombies = null; // night enemies (2 tiles tall)
   this.zombies = null; // night enemies
   this.bosses = null;  // Mörkö bosses
-  this.hemulis = null; // Hemuli flyers
     this.items = null;  // physics items to pick up
     this.invulnUntil = 0;
 
@@ -73,6 +72,9 @@ class GameScene extends Phaser.Scene {
 
   // Grappling hook state
   this.hook = { active: false, anchor: null };
+
+  // Ninja mode state
+  this.ninja = { active: false, swordLevel: 1, knifeLevel: 1, strikeLevel: 1, striking: false, strikeEndAt: 0 };
 
   // Pause state
   this.isPaused = false;
@@ -132,6 +134,7 @@ class GameScene extends Phaser.Scene {
   this.portalPositions = []; // persisted [{tx,ty,color}]
   this.portals = new Map(); // key -> { color:string, sprite:Phaser.GameObjects.GameObject }
   this.portal = { placeColor: 'blue', countdown: null, countdownKey: null, countdownText: null, cooldownUntil: 0 };
+  
   }
 
   preload() {
@@ -309,11 +312,7 @@ class GameScene extends Phaser.Scene {
   g.lineStyle(1,0x333333,1); g.strokeRect(0,0,12,4);
   g.generateTexture('tex_rocket',12,4); g.clear();
 
-  // Hemuli (simple flying enemy)
-  const hw=26, hh=18; g.fillStyle(0x664422,1); g.fillRoundedRect(4,4,18,10,4); // body
-  g.fillStyle(0xffffff,0.9); g.fillRect(0,7,8,4); g.fillRect(hw-8,7,8,4); // wings
-  g.fillStyle(0x000000,1); g.fillCircle(10,9,1); g.fillCircle(16,9,1); // eyes
-  g.generateTexture('tex_hemuli', hw, hh); g.clear();
+  // (Hemuli removed)
 
   // Oppo (jumper) texture
   g.fillStyle(0x884488,1); g.fillRoundedRect(2,6,24,18,6); // body
@@ -387,6 +386,7 @@ class GameScene extends Phaser.Scene {
   // Cannon base and barrel textures (placeable)
   g.fillStyle(0x6e6e6e,1); g.fillRoundedRect(0,0,32,20,5); g.lineStyle(2,0x4a4a4a,1); g.strokeRoundedRect(0,0,32,20,5); g.generateTexture('tex_cannon_base',32,20); g.clear();
   g.fillStyle(0x4a4a4a,1); g.fillRect(0,0,26,8); g.lineStyle(2,0x2e2e2e,1); g.strokeRect(0,0,26,8); g.generateTexture('tex_cannon_barrel',26,8); g.clear();
+  
   }
 
   create() {
@@ -408,8 +408,6 @@ class GameScene extends Phaser.Scene {
   this.zombies = this.physics.add.group();
   this.bosses = this.physics.add.group();
   this.bullets = this.physics.add.group({ allowGravity: false });
-  // Enemy: Hemuli group
-  this.hemulis = this.physics.add.group({ allowGravity: false });
   // Enemy: Oppo group (ground jumper)
   this.oppos = this.physics.add.group();
   this.portalsGroup = this.physics.add.staticGroup();
@@ -420,6 +418,7 @@ class GameScene extends Phaser.Scene {
     });
     this.waters = this.add.group();
   this.clones = this.physics.add.group();
+  
 
   // Rope graphics
   this.hookGfx = this.add.graphics();
@@ -436,8 +435,8 @@ class GameScene extends Phaser.Scene {
     this.player.setBounce(0.06);
     this.player.body.setSize(20, 34).setOffset(4, 2);
 
-    // Colliders/overlaps
-    this.physics.add.collider(this.player, this.platforms);
+  // Colliders/overlaps
+  this.col_player_platforms = this.physics.add.collider(this.player, this.platforms);
     this.physics.add.collider(this.slimes, this.platforms);
   this.physics.add.collider(this.oppos, this.platforms);
     this.physics.add.collider(this.bullets, this.platforms, this.onBulletHit, null, this);
@@ -447,24 +446,14 @@ class GameScene extends Phaser.Scene {
   this.physics.add.overlap(this.player, this.birds, this.onBirdHit, null, this);
     this.physics.add.overlap(this.player, this.slimes, this.onSlimeHit, null, this);
   this.physics.add.overlap(this.player, this.zombies, (p,z)=>{ this._hitByEnemy(z); }, null, this);
-  this.physics.add.overlap(this.player, this.hemulis, (p,h)=>{ this._hitByEnemy(h); }, null, this);
+  
   this.physics.add.overlap(this.player, this.bosses, (p,b)=>{ this._hitByEnemy(b); }, null, this);
   // Oppo contact: lethal on touch if it has bounce shoes
   this.physics.add.overlap(this.player, this.oppos, (p,o)=>{
     if (o?.getData && o.getData('bounceShoes')) { this.damage(999); }
     else { this._hitByEnemy(o); }
   }, null, this);
-  // Player bullets vs Hemuli
-  this.physics.add.overlap(this.bullets, this.hemulis, (bullet, hemuli)=>{
-      if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); bullet.destroy(); return; }
-      if (bullet?.getData && bullet.getData('fromHemuli')) { return; }
-      if (bullet?.getData && bullet.getData('isWeb') && this.mode.current==='web') {
-        hemuli.setVelocity(0,0); hemuli.body.allowGravity = false; hemuli._webbedUntil = this.time.now + 3000; // 3s
-      } else {
-        hemuli.destroy();
-      }
-      bullet.destroy();
-    }, null, this);
+  
   // Player bullets vs Oppo
   this.physics.add.overlap(this.bullets, this.oppos, (bullet, oppo)=>{
       if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); bullet.destroy(); return; }
@@ -517,10 +506,7 @@ class GameScene extends Phaser.Scene {
       }
       bullet.destroy();
     }, null, this);
-    // Enemy bullets (Hemuli) hurt player but don't break blocks
-    this.physics.add.overlap(this.bullets, this.player, (bullet, player)=>{
-      if (bullet.getData('fromHemuli')) { this.damage(1); bullet.destroy(); }
-    }, null, this);
+    
 
     // Input
     this.cursors = this.input.keyboard.createCursorKeys();
@@ -530,6 +516,11 @@ class GameScene extends Phaser.Scene {
     // On touch, use placeMode toggle to place plank with a tap
     this.input.on('pointerdown', (pointer) => {
       if (!this.started || this.isPaused) return;
+      // Ninja mode overrides: left = sword, right = knife
+      if (this.ninja.active) {
+        if (pointer.rightButtonDown()) this.ninjaThrowKnife(pointer); else this.ninjaSwordSlash(pointer);
+        return;
+      }
       const isTouch = pointer.pointerType === 'touch';
       if (!isTouch && pointer.rightButtonDown()) {
         if (this.tools.equipped === 'cannon') this.placeCannon(pointer);
@@ -572,9 +563,9 @@ class GameScene extends Phaser.Scene {
       if (!this.nearMerchant) this.toggleBackpack();
     });
 
-    // Tool selection keys
+  // Tool selection keys
     const guard = (fn)=>()=>{ if (this.started && !this.isPaused) fn(); };
-    this.input.keyboard.on('keydown-ONE', guard(()=> this.tryEquipTool('hand')));
+  this.input.keyboard.on('keydown-ONE', guard(()=>{ if (this.ninja.active) { this.ninja.swordLevel = 1; this.showToast('Ninja: Miekka Lv1'); } else this.tryEquipTool('hand'); }));
     this.input.keyboard.on('keydown-TWO', guard(()=> this.tryEquipTool('wooden')));
     this.input.keyboard.on('keydown-THREE', guard(()=> this.tryEquipTool('stone')));
     this.input.keyboard.on('keydown-FOUR', guard(()=> this.tryEquipTool('iron')));
@@ -605,6 +596,10 @@ class GameScene extends Phaser.Scene {
     }));
   // Mode toggle (Classic -> Star -> Spider)
   this.input.keyboard.on('keydown-M', guard(()=> this.cycleMode()));
+  // Toggle Ninja mode (J)
+  this.input.keyboard.on('keydown-J', guard(()=> this.toggleNinjaMode()));
+  // Ninja jump strike (K)
+  this.input.keyboard.on('keydown-K', guard(()=>{ if (this.ninja.active) this.ninjaJumpStrike(); }));
     // Debug: show death banner with B
     this.input.keyboard.on('keydown-B', guard(()=> this.showDeathBanner()));
     // Space = vine toggle (shoot -> reel -> cancel)
@@ -655,8 +650,7 @@ class GameScene extends Phaser.Scene {
   this.createMoped();
   // Place car near spawn
   this.createCar();
-  // Spawn first Hemuli a bit away
-  this._nextHemuliAt = this.time.now + 6000;
+  
   // Spawn first Oppo a bit later
   this._nextOppoAt = this.time.now + 8000;
   // Place plane near spawn
@@ -677,8 +671,10 @@ class GameScene extends Phaser.Scene {
       .setScrollFactor(0).setDepth(1000).setShadow(2,2,'#000',3);
 
     // Sync UI and settings checkboxes
-    const toggleFly = document.getElementById('toggleFly');
-    if (toggleFly) toggleFly.checked = !!this.state.canFly;
+  const toggleFly = document.getElementById('toggleFly');
+  if (toggleFly) toggleFly.checked = !!this.state.canFly;
+  const toggleBoots = document.getElementById('toggleBoots');
+  if (toggleBoots) toggleBoots.checked = !!this.state.bounceShoes;
 
   this.updateUI();
 
@@ -704,6 +700,10 @@ class GameScene extends Phaser.Scene {
     document.getElementById('btnResume')?.addEventListener('click', ()=> this.resumeGame());
     document.getElementById('btnRestart')?.addEventListener('click', ()=> this.restartGame());
     document.getElementById('btnPauseSettings')?.addEventListener('click', ()=> document.getElementById('settingsMenu')?.classList.toggle('hidden'));
+  // Minigames from pause
+  document.getElementById('btnMiniMurder')?.addEventListener('click', ()=>{ try{ window.Sfx?.resume(); }catch(e){} this.startMinigame('murder'); });
+  document.getElementById('btnMiniParkour')?.addEventListener('click', ()=>{ try{ window.Sfx?.resume(); }catch(e){} this.startMinigame('parkour'); });
+  document.getElementById('btnMiniDesert')?.addEventListener('click', ()=>{ try{ window.Sfx?.resume(); }catch(e){} this.startMinigame('desert'); });
 
   // Darkness overlay
   this.darknessGfx = this.add.graphics().setScrollFactor(0).setDepth(900);
@@ -760,13 +760,7 @@ class GameScene extends Phaser.Scene {
       if (this.car.prompt) this.car.prompt.setPosition(this.car.sprite.x, this.car.sprite.y - 38).setVisible(this.nearCar && !this.car.mounted);
     }
 
-    // Spawn Hemuli periodically near player (cap at 1 active)
-    if (!this.isPaused && this.time.now >= (this._nextHemuliAt||0)) {
-      this._nextHemuliAt = this.time.now + 22000;
-      if ((this.hemulis?.countActive(true) || 0) < 1) {
-        this.trySpawnHemuliNearPlayer();
-      }
-    }
+    
 
     // Spawn Oppo periodically (cap at 3 active)
     if (!this.isPaused && this.time.now >= (this._nextOppoAt||0)) {
@@ -774,36 +768,7 @@ class GameScene extends Phaser.Scene {
       if ((this.oppos?.countActive(true) || 0) < 3) this.trySpawnOppoNearPlayer();
     }
 
-    // Hemuli AI: fly and minigun-shoot at player with LOS, bullets don’t break blocks
-    this.hemulis?.children?.iterate?.((h)=>{
-      if (!h || !h.active) return;
-      // steer towards a point near the player
-      const targetX = this.player.x + (Math.random()*120-60);
-      const targetY = this.player.y - 30 + (Math.random()*40-20);
-      const dx = targetX - h.x, dy = targetY - h.y;
-      const d = Math.hypot(dx, dy) || 1;
-      const nx = dx/d, ny = dy/d;
-      h.setVelocity(nx*120, ny*120);
-      // face direction
-      if (h.setFlipX) h.setFlipX(nx<0);
-      // shoot if LOS
-      const tx = this.player.x, ty = this.player.y;
-      const sdx = tx - h.x, sdy = ty - h.y; const dist = Math.hypot(sdx,sdy);
-      if (dist < 18*TILE) {
-        const steps = Math.ceil(dist / TILE);
-        let blocked=false; for (let i=1;i<=steps;i++){
-          const ix = h.x + sdx*i/steps, iy = h.y + sdy*i/steps;
-          const itx = Math.floor(ix/TILE), ity = Math.floor(iy/TILE);
-          if (this.hasSolidBlockAt(itx,ity)) { blocked = true; break; }
-        }
-        if (!blocked && (!h._nextFireAt || this.time.now >= h._nextFireAt)){
-          h._nextFireAt = this.time.now + 101; // ~9.9 / second
-          const sx = h.x, sy = h.y;
-          const b = this.spawnBulletFrom(sx, sy, tx, ty, { speed: 820, lifeTiles: 12, spread: 0.07, noBlockDamage: true });
-          b.setData('fromHemuli', true);
-        }
-      }
-    });
+    // (Hemuli removed)
 
     // Oppo AI: hop toward player; if has bounce shoes, jumps higher and kills on touch
     this.oppos?.children?.iterate?.((o)=>{
@@ -837,7 +802,7 @@ class GameScene extends Phaser.Scene {
     }
 
     if (this.car?.mounted && this.car.turrets?.length) {
-      const groups = [this.slimes, this.birds, this.zombies, this.hemulis, this.oppos];
+  const groups = [this.slimes, this.birds, this.zombies, this.oppos];
       const range2 = (16*TILE)*(16*TILE);
       for (const t of this.car.turrets) {
         let best=null, bestD2=range2;
@@ -875,7 +840,7 @@ class GameScene extends Phaser.Scene {
       if (tR) tR.setPosition(this.plane.sprite.x+28, this.plane.sprite.y-14).setVisible(true);
     }
     if (this.plane?.mounted && this.plane.turrets?.length) {
-      const groups = [this.slimes, this.birds, this.zombies, this.hemulis, this.oppos];
+  const groups = [this.slimes, this.birds, this.zombies, this.oppos];
       const range2 = (18*TILE)*(18*TILE);
       for (const t of this.plane.turrets) {
         let best=null, bestD2=range2;
@@ -953,6 +918,30 @@ class GameScene extends Phaser.Scene {
 
   const onGround = this.player.body.blocked.down || this.player.body.touching.down;
 
+  // Handle active Ninja strike movement (dash through blocks and home into nearest enemy)
+  if (this.ninja.active && this.ninja.striking) {
+    // Temporarily disable collisions with platforms
+    if (this.col_player_platforms) this.col_player_platforms.active = false;
+    this.player.body.checkCollision.none = true;
+    // Home into nearest enemy
+    const groups = [this.slimes, this.birds, this.zombies, this.oppos];
+    let best=null, bestD2=Infinity;
+    for (const g of groups) {
+      g?.children?.iterate?.(e=>{ if (!e||!e.active) return; const dx=e.x-this.player.x, dy=e.y-this.player.y; const d2=dx*dx+dy*dy; if (d2<bestD2){ bestD2=d2; best=e; }});
+    }
+    if (best) {
+      const dx = best.x - this.player.x, dy = best.y - this.player.y; const d = Math.hypot(dx,dy)||1; const nx=dx/d, ny=dy/d;
+      this.player.setVelocity(nx*520, ny*520);
+      // Hit on proximity
+      if (bestD2 < (1.4*TILE)*(1.4*TILE)) { const x=best.x,y=best.y; best.destroy(); this.dropCoins?.(x,y,3); this.ninja.striking = false; this.ninjaStrikeOff(); this.showToast('Ninja: Hyppyisku!'); }
+    }
+    if (this.time.now >= this.ninja.strikeEndAt) { this.ninja.striking = false; this.ninjaStrikeOff(); }
+  } else {
+    // Ensure collisions restored when not striking
+    if (this.col_player_platforms) this.col_player_platforms.active = true;
+    this.player.body.checkCollision.none = false;
+  }
+
   const left = this.cursors.left.isDown || this.keys.A.isDown || this.touchState.left;
   const right = this.cursors.right.isDown || this.keys.D.isDown || this.touchState.right;
   const jump = this.cursors.up.isDown || this.keys.W.isDown || this.keys.SPACE.isDown || this.touchState.jump;
@@ -973,6 +962,7 @@ class GameScene extends Phaser.Scene {
       const jv = this.state.bounceShoes ? -560 : -440;
       this.player.setVelocityY(jv);
       this.player.setScale(1.05,0.95); this.time.delayedCall(120,()=>this.player.setScale(1,1));
+      window.playSfx?.('jump');
     }
 
     // Keep moped sprite attached when riding
@@ -1300,6 +1290,53 @@ class GameScene extends Phaser.Scene {
   this.maybeRunSlimeCloners();
   }
 
+  // --- Ninja Mode ---
+  toggleNinjaMode(){
+    this.ninja.active = !this.ninja.active;
+    if (this.ninja.active) {
+      this.showToast('Ninja-tila päällä (Vasen: miekka, Oikea: heittoveitsi, K: hyppyisku)');
+    } else {
+      this.ninja.striking = false; this.ninjaStrikeOff(); this.showToast('Ninja-tila pois');
+    }
+    this.updateInventoryUI(); this.saveState();
+  }
+  ninjaSwordSlash(pointer){
+    if (this._ninjaSlashCd && this._ninjaSlashCd > this.time.now) return; this._ninjaSlashCd = this.time.now + 220;
+    const tiles = Math.max(1, this.ninja.swordRange || Math.ceil(1.6 + 0.2*(this.ninja.swordLevel-1)));
+    const reach = tiles * TILE;
+    const px = this.player.x, py = this.player.y;
+    const dirRight = !this.player.flipX;
+    // Find nearest enemy IN FRONT within reach
+    const groups = [this.slimes, this.birds, this.zombies, this.oppos];
+    let target = null; let bestD2 = Infinity;
+    for (const gr of groups){ gr?.children?.iterate?.((e)=>{ if (!e||!e.active) return; const dx=e.x-px, dy=e.y-py; const forward = dirRight ? dx>=0 : dx<=0; if (!forward) return; const d2=dx*dx+dy*dy; if (d2 <= reach*reach && d2 < bestD2){ bestD2 = d2; target = e; } }); }
+    // Visual swipe (straight slash in facing dir)
+    const g = this.add.graphics().setDepth(800);
+    g.lineStyle(6, 0xffffff, 0.6);
+    const sx = px, sy = py; const ex = px + (dirRight ? reach : -reach), ey = py;
+    g.beginPath(); g.moveTo(sx, sy); g.lineTo(ex, ey); g.strokePath(); this.time.delayedCall(100, ()=> g.destroy());
+    if (target) { const x=target.x,y=target.y; target.destroy(); this.dropCoins?.(x,y,2); }
+  }
+  ninjaThrowKnife(pointer){
+    if (this._ninjaKnifeCd && this._ninjaKnifeCd > this.time.now) return; this._ninjaKnifeCd = this.time.now + Math.max(100, 260 - this.ninja.knifeLevel*20);
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const b = this.spawnBulletFrom(this.player.x, this.player.y, wp.x, wp.y, { speed: 900, lifeTiles: 18, spread: 0, noBlockDamage: true });
+    // Make it pass through tiles
+    b.body.checkCollision.none = true;
+    b.setTint(0xffeeee);
+  }
+  ninjaJumpStrike(){
+    if (this.ninja.striking) return;
+    // small hop up (1 block), then dash
+    this.player.setVelocityY(-TILE * 7/10);
+    const duration = 500 + this.ninja.strikeLevel*40; // ms
+    this.ninja.striking = true; this.ninja.strikeEndAt = this.time.now + duration;
+  }
+  ninjaStrikeOff(){
+    if (this.col_player_platforms) this.col_player_platforms.active = true;
+    this.player.body.checkCollision.none = false;
+  }
+
   // Car helpers
   createCar(){
     const tx = 18, ty = SURFACE_Y - 1;
@@ -1376,6 +1413,7 @@ class GameScene extends Phaser.Scene {
   // Pause/Start helpers
   startGame(){
     this.started = true;
+    try { window.Sfx?.resume(); } catch(e) {}
     this.resumeGame();
     document.getElementById('startScreen')?.classList.add('hidden');
   }
@@ -1387,9 +1425,11 @@ class GameScene extends Phaser.Scene {
   resumeGame(){
     this.isPaused = false;
     this.physics.world.isPaused = false;
+    try { window.Sfx?.resume(); } catch(e) {}
     document.getElementById('pauseScreen')?.classList.add('hidden');
   }
   restartGame(){
+    try { window.Sfx?.resume(); } catch(e) {}
     // Reset save and reload scene
     try {
       const wid = localStorage.getItem('UAG_worldCurrent');
@@ -1401,6 +1441,23 @@ class GameScene extends Phaser.Scene {
     // After restart, started should be false so start screen shows again (handled in create)
     const startEl = document.getElementById('startScreen');
     startEl?.classList.remove('hidden');
+  }
+
+  // --- Minigames ---
+  startMinigame(type){
+    // Hide pause overlay while minigame runs
+    try { document.getElementById('pauseScreen')?.classList.add('hidden'); } catch(e) {}
+    // Pause this scene and launch minigame
+    this.isPaused = true;
+    if (this.physics?.world) this.physics.world.isPaused = true;
+    if (this.input) { this.input.enabled = false; try{ this.input.keyboard.enabled = false; }catch(e){} }
+    this.scene.pause();
+    this.scene.launch('MinigameScene', { type });
+  }
+  onReturnFromMinigame(result){
+    // Keep main game paused and show the pause overlay again
+    try { document.getElementById('pauseScreen')?.classList.remove('hidden'); } catch(e) {}
+    if (this.input) { this.input.enabled = true; try{ this.input.keyboard.enabled = true; }catch(e){} }
   }
 
   isTouchingCactus(){
@@ -1803,7 +1860,8 @@ class GameScene extends Phaser.Scene {
     this._bazookaCd = this.time.now + 600;
     const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
     const sx = this.player.x, sy = this.player.y;
-    const rocket = this.spawnBulletFrom(sx, sy, wp.x, wp.y, { speed: 420, lifeTiles: 10, spread: 0 });
+  const rocket = this.spawnBulletFrom(sx, sy, wp.x, wp.y, { speed: 420, lifeTiles: 10, spread: 0 });
+  window.playSfx?.('bazooka');
     rocket.setTexture('tex_rocket');
     rocket.setData('isRocket', true);
     rocket.setData('noBlockDamage', true);
@@ -1814,19 +1872,7 @@ class GameScene extends Phaser.Scene {
     rocket.preUpdate = function(t, dt){ origPreUpdate.call(this, t, dt); };
   }
 
-  // Hemuli spawn logic
-  trySpawnHemuliNearPlayer(){
-  // ensure only one active Hemuli exists
-  if ((this.hemulis?.countActive(true) || 0) >= 1) return null;
-    const px = this.player.x, py = this.player.y;
-    // pick a side offset
-    const side = Math.random()<0.5?-1:1;
-    const x = px + side * (10 + Math.random()*6) * TILE;
-    const y = py - (2 + Math.random()*2) * TILE;
-    const h = this.hemulis.create(x, y, 'tex_hemuli');
-    h.setDepth(5); h.setCircle(8, 5, 5); h.body.allowGravity = false;
-    return h;
-  }
+  // (Hemuli spawn removed)
 
   // Oppo spawn logic: near player, sometimes with bounce shoes
   trySpawnOppoNearPlayer(){
@@ -1895,8 +1941,9 @@ class GameScene extends Phaser.Scene {
       if (!toClear.has(k)) { toClear.add(k); added++; }
     }
 
-    // Flash FX over approximate bounding box (17x17 tiles)
-    const gfx = this.add.graphics().setDepth(800);
+  // Flash FX over approximate bounding box (17x17 tiles)
+  const gfx = this.add.graphics().setDepth(800);
+  window.playSfx?.('explosion_small');
     gfx.fillStyle(0xffee66, 0.30);
     gfx.fillRect((cx-8)*TILE, (cy-8)*TILE, 17*TILE, 17*TILE);
     this.time.delayedCall(120, ()=> gfx.destroy());
@@ -1926,7 +1973,6 @@ class GameScene extends Phaser.Scene {
   const xMin=(cx-8)*TILE, xMax=(cx+9)*TILE, yMin=(cy-8)*TILE, yMax=(cy+9)*TILE;
     const inBox=(e)=> e && e.active && e.x>=xMin && e.x< xMax && e.y>=yMin && e.y< yMax;
   this.birds?.children?.iterate?.(b=>{ if (inBox(b)) b.destroy(); });
-  this.hemulis?.children?.iterate?.(h=>{ if (inBox(h)) h.destroy(); });
     this.slimes?.children?.iterate?.(s=>{ if (inBox(s)) { const ex=s.x, ey=s.y; s.destroy(); this.dropCoins(ex,ey,3); } });
     this.zombies?.children?.iterate?.(z=>{ if (inBox(z)) { const ex=z.x, ey=z.y; z.destroy(); this.dropCoins(ex,ey,2); } });
     this.clones?.children?.iterate?.(c=>{ if (inBox(c)) c.destroy(); });
@@ -1958,8 +2004,9 @@ class GameScene extends Phaser.Scene {
     toClear.delete(`${cx+R},${cy}`);
     toClear.delete(`${cx-R},${cy}`);
 
-    // FX
-    const gfx = this.add.graphics().setDepth(800);
+  // FX
+  const gfx = this.add.graphics().setDepth(800);
+  window.playSfx?.('nuke');
     gfx.fillStyle(0xffef6e, 0.30);
     gfx.fillCircle(cx*TILE+TILE/2, cy*TILE+TILE/2, (R+0.6)*TILE);
     this.time.delayedCall(160, ()=> gfx.destroy());
@@ -1989,7 +2036,6 @@ class GameScene extends Phaser.Scene {
     const xMin=(cx-7)*TILE, xMax=(cx+8)*TILE, yMin=(cy-7)*TILE, yMax=(cy+8)*TILE;
     const inBox=(e)=> e && e.active && e.x>=xMin && e.x< xMax && e.y>=yMin && e.y< yMax;
   this.birds?.children?.iterate?.(b=>{ if (inBox(b)) b.destroy(); });
-  this.hemulis?.children?.iterate?.(h=>{ if (inBox(h)) h.destroy(); });
   this.oppos?.children?.iterate?.(o=>{ if (inBox(o)) { const ex=o.x, ey=o.y; o.destroy(); this.dropCoins(ex,ey,2); if (Math.random()<0.18 && !this.state.bounceShoes) this.spawnPickup(ex, ey, 'tex_boots'); } });
     this.slimes?.children?.iterate?.(s=>{ if (inBox(s)) { const ex=s.x, ey=s.y; s.destroy(); this.dropCoins(ex,ey,5); } });
     this.zombies?.children?.iterate?.(z=>{ if (inBox(z)) { const ex=z.x, ey=z.y; z.destroy(); this.dropCoins(ex,ey,4); } });
@@ -2009,7 +2055,8 @@ class GameScene extends Phaser.Scene {
     const dx = wp.x - sx, dy = wp.y - sy;
     const d = Math.hypot(dx, dy) || 1;
     const nx = dx/d, ny = dy/d;
-    const bullet = this.bullets.create(sx, sy, 'tex_bullet');
+  const bullet = this.bullets.create(sx, sy, 'tex_bullet');
+  window.playSfx?.('plane');
     const speed = 1200;
     bullet.setVelocity(nx*speed, ny*speed);
     bullet.setRotation(Math.atan2(ny, nx));
@@ -2031,7 +2078,8 @@ class GameScene extends Phaser.Scene {
     const tyMin = cy - 3, tyMax = cy + 2; // 6 tiles tall
 
     // FX: flash rectangle
-    const gfx = this.add.graphics().setDepth(800);
+  const gfx = this.add.graphics().setDepth(800);
+  window.playSfx?.('explosion_small');
     gfx.fillStyle(0xffaa33, 0.35);
     gfx.fillRect(txMin*TILE, tyMin*TILE, (txMax-txMin+1)*TILE, (tyMax-tyMin+1)*TILE);
     this.time.delayedCall(120, ()=> gfx.destroy());
@@ -2063,7 +2111,6 @@ class GameScene extends Phaser.Scene {
     // Damage/kill enemies within the same 6x6 area (AABB check)
     const inBox = (e)=> e && e.active && e.x >= txMin*TILE && e.x < (txMax+1)*TILE && e.y >= tyMin*TILE && e.y < (tyMax+1)*TILE;
   this.birds?.children?.iterate?.(b=>{ if (inBox(b)) b.destroy(); });
-  this.hemulis?.children?.iterate?.(h=>{ if (inBox(h)) h.destroy(); });
   this.oppos?.children?.iterate?.(o=>{ if (inBox(o)) { const ex=o.x, ey=o.y; o.destroy(); this.dropCoins(ex,ey,2); } });
     this.slimes?.children?.iterate?.(s=>{ if (inBox(s)) { const ex=s.x, ey=s.y; s.destroy(); this.dropCoins(ex,ey,3); } });
     this.zombies?.children?.iterate?.(z=>{ if (inBox(z)) { const ex=z.x, ey=z.y; z.destroy(); this.dropCoins(ex,ey,2); } });
@@ -2307,6 +2354,12 @@ class GameScene extends Phaser.Scene {
   if (this.mode.current === 'galactic') projKey = 'tex_laser';
   if (this.mode.current === 'web') projKey = 'tex_web';
   const bullet = this.bullets.create(this.player.x, this.player.y, projKey);
+  // Play 8-bit SFX depending on mode/weapon
+  if (this.mode.current === 'galactic') { window.playSfx?.('laser'); }
+  else if (this.mode.current === 'web') { window.playSfx?.('web'); }
+  else if (this.tools.equipped === 'minigun' || opts.markMinigun) { window.playSfx?.('minigun'); }
+  else if (this.tools.equipped === 'sniper') { window.playSfx?.('sniper'); }
+  else { window.playSfx?.('shoot'); }
   if (this.tools.equipped === 'minigun' || opts.markMinigun) bullet.setData('isMinigun', true);
   if (this.mode.current === 'web') bullet.setData('isWeb', true);
   const speed = 600; // px per second
@@ -2451,7 +2504,7 @@ class GameScene extends Phaser.Scene {
     const coin = this.physics.add.sprite(x, y-10, 'tex_coin');
     coin.setVelocity(Phaser.Math.Between(-80,80), -220); coin.setBounce(0.4); coin.setCollideWorldBounds(true);
     this.physics.add.collider(coin, this.platforms);
-  this.physics.add.overlap(this.player, coin, ()=>{ coin.destroy(); this.state.coins++; this.updateUI(); this.saveState(); }, null, this);
+  this.physics.add.overlap(this.player, coin, ()=>{ coin.destroy(); this.state.coins++; this.updateUI(); this.saveState(); window.playSfx?.('coin'); }, null, this);
     // Track in current chunk if generating
     if (this.currentChunk!=null) this.chunks.get(this.currentChunk)?.pickups.push(coin);
   }
@@ -2543,11 +2596,14 @@ class GameScene extends Phaser.Scene {
     if (gem.texture.key === 'tex_red') {
   this.state.canFly = true;
   this.showToast('LENTO AVATTU! Pidä Ylös/Space lentääksesi');
+  window.playSfx?.('pickup');
     } else if (gem.texture.key === 'tex_boots') {
       this.state.bounceShoes = true;
       this.showToast('Pomppukengät saatu! Korkeampi hyppy käytössä');
+      window.playSfx?.('pickup');
     } else {
   this.state.coins += 1;
+  window.playSfx?.('coin');
     }
     this.updateUI(); this.saveState();
     gem.destroy();
@@ -3165,12 +3221,14 @@ class GameScene extends Phaser.Scene {
   // Health/damage and save/load
   damage(amount){
     this.state.health = Math.max(0, this.state.health - amount);
+    window.playSfx?.('hit');
     this.updateUI(); this.saveState();
     if (this.state.health <= 0) {
       this.state.health = 4;
       this.state.coins = Math.max(0, this.state.coins - 5);
       this.player.setPosition(this.player.x,100); this.player.setVelocity(0,0);
       this.showToast('Kuolit! -5 kolikkoa');
+      window.playSfx?.('death');
       this.showDeathBanner();
       this.updateUI(); this.saveState();
     }
@@ -3475,6 +3533,327 @@ class GameScene extends Phaser.Scene {
 }
 
 // Phaser config and boot
+class MinigameScene extends Phaser.Scene {
+  constructor(){ super('MinigameScene'); this.mode = 'murder'; this.ui = null; }
+  init(data){ this.mode = (data && data.type) || 'murder'; }
+  create(){
+    // Basic scene setup
+  const worldH = WORLD_TILES_Y * TILE;
+  // Make a super-wide minigame playfield ~40000px wide (~1000 tiles)
+  const halfW = 20000; // px
+  this.physics.world.setBounds(-halfW, 0, halfW*2, worldH);
+    this.cameras.main.setBackgroundColor('#3a93ff');
+    // Groups
+    this.platforms = this.physics.add.staticGroup();
+    this.enemies = this.physics.add.group();
+    this.pickups = this.physics.add.group();
+    // Generate terrain depending on mode
+    const groundY = SURFACE_Y + 3;
+    const rng = (min,max)=> min + Math.floor(Math.random()*(max-min+1));
+    if (this.mode === 'desert') {
+      // Aavikko: leveä hiekkamaasto + dyynit
+      for (let tx=-600; tx<=600; tx++){
+        const baseH = groundY + 2; // pehmeä hiekkakerros
+        // pieni dyynikorkeus siniaallolla
+        const dune = Math.floor(Math.sin(tx/14) * 2 + Math.sin(tx/37) * 3);
+        for (let ty=groundY; ty<WORLD_TILES_Y; ty++){
+          const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+          if (ty < baseH + dune) {
+            const s = this.platforms.create(x,y,'tex_sand'); s.refreshBody();
+          } else {
+            const s = this.platforms.create(x,y,'tex_sandstone'); s.refreshBody();
+          }
+        }
+        // satunnaisia kivipaasia (esteitä) pinnalle
+        if (Math.random() < 0.12) {
+          const h = rng(2,4);
+          for (let i=0;i<h;i++){
+            const x = tx*TILE + TILE/2, y = (groundY-1-i)*TILE + TILE/2;
+            const s = this.platforms.create(x,y,'tex_sandstone'); s.refreshBody();
+          }
+        }
+      }
+      // Tavoite: keidas oikealla laidalla
+      const oasisTx = 520; const ox = oasisTx*TILE + TILE/2;
+      this.oasis = this.add.text(ox, (SURFACE_Y-3)*TILE, 'KEIDAS', { fontFamily:'monospace', fontSize:'16px', color:'#0ff', backgroundColor:'#0008' }).setOrigin(0.5);
+      this.oasisZone = this.add.zone(ox, (SURFACE_Y-3)*TILE, TILE*3, TILE*4); this.physics.world.enable(this.oasisZone, Phaser.Physics.Arcade.STATIC_BODY);
+      this.physics.add.overlap(this.player, this.oasisZone, ()=>{ this.showToast('Pelastuit keitaalle!'); this.time.delayedCall(600, ()=> this.exitMinigame()); });
+      // Jano-mekaniikka
+      this.thirst = 100; this.lastThirstTick = 0;
+      this.ui = this.add.text(10,10,'', { fontFamily:'monospace', fontSize:'14px', color:'#fff' }).setScrollFactor(0).setDepth(1000);
+      this.ui.setText('Aavikkovaellus: Pääse keitaalle oikealla. A/D/←/→, W/Space hyppy. Jano vähenee kuumuudessa. Poimi vesipulloja!');
+      // Vesi-pickupit reitille
+      this.desertPickups = this.physics.add.group();
+      for (let i=0;i<25;i++){
+        const tx = rng(-40, 500); const ty = SURFACE_Y - rng(2,6);
+        const px = tx*TILE + TILE/2, py = ty*TILE + TILE/2;
+        const p = this.desertPickups.create(px, py, 'tex_water'); // käytetään 'tex_water' placeholderina
+        p.setScale(0.6); p.body.setAllowGravity(false);
+        this.physics.add.overlap(this.player, p, ()=>{ p.destroy(); this.thirst = Math.min(100, this.thirst + 35); this.showToast('Vettä +35'); }, null, this);
+      }
+      // Skorpionit: pienet viholliset maanpinnalla
+      this.scorpions = this.physics.add.group();
+      for (let i=0;i<18;i++){
+        const tx = rng(-60, 520), ty = SURFACE_Y-1; const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+        const sc = this.scorpions.create(x,y,'tex_oppo').setScale(0.7).setTint(0xffaa33);
+        sc.body.setSize(16,16).setOffset(4,6); this.physics.add.collider(sc, this.platforms);
+      }
+      this.physics.add.overlap(this.player, this.scorpions, ()=>{ this.showToast('Skorpioni pisti!'); this.damageInDesert?.(20); }, null, this);
+      // Lämpöväreily overlay
+      this.heat = this.add.graphics().setScrollFactor(0).setDepth(850);
+    } else {
+      // City ground + rakennukset (murder/parkour)
+      for (let tx=-500; tx<=500; tx++){
+        for (let ty=groundY; ty<WORLD_TILES_Y; ty++){
+          const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+          if (ty < groundY + 3) { const s = this.platforms.create(x,y,'tex_stone'); s.refreshBody(); }
+          else { const s = this.platforms.create(x,y,'tex_ground'); s.refreshBody(); }
+        }
+      }
+      for (let i=0;i<220;i++){
+        const bx = rng(-480,480), bw = rng(3,10), bh = rng(3,11);
+        for (let tx=0; tx<bw; tx++) for (let ty=0; ty<bh; ty++){
+          const x = (bx+tx)*TILE + TILE/2; const y = (groundY-1-ty)*TILE + TILE/2;
+          const s = this.platforms.create(x,y,'tex_sandstone'); s.refreshBody();
+        }
+      }
+    }
+    // Helpers to query/clear tile occupancy for static platforms
+    const hasPlatformAt = (tx,ty)=>{
+      let found=false; this.platforms?.children?.iterate?.((c)=>{
+        if (found || !c) return; if (Math.floor(c.x/TILE)===tx && Math.floor(c.y/TILE)===ty) found=true; }); return found;
+    };
+  const clearAreaAboveGround = (cx, widthTiles=7, heightTiles=10)=>{
+      const tx0 = Math.floor(cx / TILE);
+      const minTx = tx0 - Math.floor(widthTiles/2), maxTx = tx0 + Math.floor(widthTiles/2);
+      const minTy = Math.max(0, groundY - heightTiles), maxTy = groundY - 1;
+      const toRemove = [];
+      this.platforms?.children?.iterate?.((c)=>{
+        if (!c) return; const tx=Math.floor(c.x/TILE), ty=Math.floor(c.y/TILE);
+        if (tx>=minTx && tx<=maxTx && ty>=minTy && ty<=maxTy) toRemove.push(c);
+      });
+      toRemove.forEach(c=> c.destroy());
+      try { this.platforms.refresh(); this.physics.world.staticBodiesDirty = true; } catch(e) {}
+    };
+    const columnIsClear = (tx, topTy, bottomTy)=>{
+      for (let ty=topTy; ty<=bottomTy; ty++) if (hasPlatformAt(tx, ty)) return false; return true;
+    };
+    const chooseSafeSpawn = ()=>{
+      const desiredTop = groundY - 12; const desiredBottom = groundY - 1;
+      const cx = Math.floor((-24 * TILE) / TILE);
+      // scan horizontally ±80 tiles
+      for (let r=0; r<=80; r++){
+        for (const sx of [cx - r, cx + r]){
+          if (columnIsClear(sx, desiredTop, desiredBottom)) {
+            return { tx: sx, ty: groundY - 2 };
+          }
+        }
+      }
+      // fallback: original
+      return { tx: cx, ty: groundY - 2 };
+    };
+  // Player spawn (ensure clear space)
+  const safe = chooseSafeSpawn();
+  this.spawnX = safe.tx * TILE; this.groundY = groundY;
+  clearAreaAboveGround(this.spawnX, 9, 12);
+  this.player = this.physics.add.sprite(safe.tx*TILE + TILE/2, safe.ty*TILE + TILE/2, 'tex_player_dyn');
+    this.player.body.setSize(20,34).setOffset(4,2);
+    this.player.setBounce(0.05);
+    this.player.setCollideWorldBounds(true);
+  this.physics.add.collider(this.player, this.platforms);
+  // After colliders, ensure no overlap remains
+  this.time.delayedCall(0, ()=> this.ensureClear(this.player));
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.keys = this.input.keyboard.addKeys({A:'A',D:'D',W:'W',SPACE:'SPACE'});
+    // Camera
+    this.cameras.main.startFollow(this.player, true, 0.15, 0.15);
+    // Night darkness overlay
+    this.darknessGfx = this.add.graphics().setScrollFactor(0).setDepth(900);
+    // Helper: resolve if player gets stuck inside platforms by nudging up
+    this.ensureClear = (sprite)=>{
+      let tries = 0;
+      while (tries++ < 40 && this.physics.world.overlap(sprite, this.platforms)) {
+        sprite.y -= 4;
+      }
+    };
+    this.safeRespawn = ()=>{
+      clearAreaAboveGround(this.spawnX, 5, 8);
+      this.player.setPosition(this.spawnX, (this.groundY-2)*TILE);
+      this.player.body.stop();
+      this.ensureClear(this.player);
+    };
+    // Initial ensure not stuck
+    this.ensureClear(this.player);
+    // UI overlay with instructions and exit button
+    this.ui = this.add.text(10,10,'', { fontFamily:'monospace', fontSize:'14px', color:'#fff' }).setScrollFactor(0).setDepth(1000);
+    this.exitBtn = this.add.text(10, 36, '[Poistu minipelistä]', { fontFamily:'monospace', fontSize:'14px', color:'#fffe' })
+      .setInteractive({ useHandCursor:true }).setScrollFactor(0).setDepth(1000)
+      .on('pointerdown', ()=> this.exitMinigame());
+    // Mode-specific setup
+  if (this.mode === 'murder') this.setupMurder({ groundY, hasPlatformAt, clearAreaAboveGround });
+  else if (this.mode === 'parkour') this.setupParkour({ groundY, hasPlatformAt });
+  else if (this.mode === 'desert') this.setupDesert();
+    // Esc exits
+    this.input.keyboard.on('keydown-ESC', ()=> this.exitMinigame());
+  }
+  setupDesert(){
+    // Ei erillisiä aseita; selviydy ja juokse oikealle
+    this.weapon = 'none';
+  }
+  setupMurder(ctx){
+    this.ui.setText('Murhaajajahti: juokse maan tasalla! A/D/←/→, W/Space hyppy. Puukko (lähi), satunnainen pistooli (1 kpl). Ei blockien rikkomista.');
+    // Weapons
+    this.weapon = 'knife';
+    this.lastShoot = 0;
+    // Spawns
+    // Killer enemy that chases player on ground
+    const killerX = this.player.x - 10*TILE;
+  ctx?.clearAreaAboveGround?.(killerX, 7, 10);
+    const k = this.enemies.create(killerX, this.player.y, 'tex_oppo');
+    k.setTint(0xff3333); k.body.setSize(20,24).setOffset(4,2);
+    this.physics.add.collider(k, this.platforms);
+    this.killer = k;
+    // Rare pistol pickup somewhere on roof
+    let p=null, tries=0;
+    while (!p && tries++ < 80){
+      const tx = Phaser.Math.Between(-480, 480);
+      const ty = (SURFACE_Y - Phaser.Math.Between(4,8));
+      if (!ctx?.hasPlatformAt?.(tx, ty)) {
+        const px = tx*TILE + TILE/2; const py = ty*TILE + TILE/2;
+        p = this.pickups.create(px, py, 'tex_weapon_pistol');
+      }
+    }
+    if (p) {
+      p.body.setAllowGravity(false);
+      this.physics.add.overlap(this.player, p, ()=>{ p.destroy(); this.weapon = 'pistol'; this.showToast('Löysit pistoolin (vain yksi)!'); }, null, this);
+    }
+    // Collisions
+    this.physics.add.collider(this.enemies, this.platforms);
+  }
+  setupParkour(ctx){
+    this.ui.setText('Parkour-kisa: satunnaisia esteitä. A/D/←/→, W/Space hyppy. Ei blockien rikkomista.');
+    // Generate random obstacles ahead to the right
+  const startX = -80; const endX = 320;
+    for (let x=startX; x<endX; x+= Phaser.Math.Between(2,4)){
+      const h = Phaser.Math.Between(1,4);
+      for (let i=0;i<h;i++){
+        const tx = x; const ty = (SURFACE_Y-1) - i;
+        const gx = tx*TILE + TILE/2, gy = ty*TILE + TILE/2;
+        const s = this.platforms.create(gx, gy, 'tex_stone'); s.refreshBody();
+      }
+      // occasional gap
+      if (Math.random()<0.25) {
+        // remove one ground tile to form a pit
+        const pitX = x + Phaser.Math.Between(1,2);
+        const gx = pitX*TILE + TILE/2, gy = (SURFACE_Y+1)*TILE + TILE/2;
+        // leave as gap (no tile placed)
+      }
+    }
+    // Finish flag
+    const fx = endX*TILE + TILE/2;
+  this.finish = this.add.text(fx, (SURFACE_Y-3)*TILE, 'MAALI', { fontFamily:'monospace', fontSize:'16px', color:'#fff', backgroundColor:'#0008' }).setOrigin(0.5);
+  this.finishZone = this.add.zone(fx, (SURFACE_Y-3)*TILE, TILE*2, TILE*3);
+  this.physics.world.enable(this.finishZone, Phaser.Physics.Arcade.STATIC_BODY);
+  this.physics.add.overlap(this.player, this.finishZone, ()=>{ this.showToast('Voitto!'); this.time.delayedCall(600, ()=> this.exitMinigame()); });
+  }
+  update(){
+    if (!this.player) return;
+    const cam = this.cameras.main; 
+    // Desert heat haze and thirst
+    if (this.mode === 'desert'){
+      // Thirst tick
+      if (!this.lastThirstTick) this.lastThirstTick = this.time.now;
+      if (this.time.now - this.lastThirstTick > 900){
+        this.lastThirstTick = this.time.now;
+        this.thirst = Math.max(0, this.thirst - 3);
+        if (!this.thirstText) this.thirstText = this.add.text(cam.scrollX+cam.width-10, cam.scrollY+10, '', { fontFamily:'monospace', fontSize:'14px', color:'#fff', backgroundColor:'#0008' }).setOrigin(1,0).setDepth(1000);
+        this.thirstText.setPosition(cam.scrollX+cam.width-10, cam.scrollY+10).setText(`Jano: ${this.thirst}`);
+        if (this.thirst === 0) { this.showToast('Nääntyit janoon...'); this.time.delayedCall(700, ()=> this.exitMinigame()); }
+      }
+      // Simple heat shimmer effect
+      this.heat.clear();
+      this.heat.fillStyle(0xffdd66, 0.03);
+      for (let i=0;i<10;i++){
+        const y = (i*cam.height/10) + Math.sin((this.time.now/500)+(i*0.8))*6;
+        this.heat.fillRect(0, y, cam.width, 3);
+      }
+    }
+    // Keep it dark (night): redraw overlay each frame
+    this.darknessGfx.clear();
+    // Dark base
+    this.darknessGfx.fillStyle(0x000000, 0.68);
+    this.darknessGfx.fillRect(0, 0, cam.width, cam.height);
+    // Soft light halo around player (erase blend)
+    const sx = this.player.x - cam.scrollX;
+    const sy = this.player.y - cam.scrollY;
+    this.darknessGfx.setBlendMode(Phaser.BlendModes.ERASE);
+    const rad = 150; const steps = 28; const maxA = 0.32; const minA = 0.06;
+    for (let i = steps; i >= 1; i--) {
+      const frac = i / steps;           // 1 -> 1/steps
+      const rr = rad * frac;            // radius taper
+      const t = 1 - frac;               // 0 at edge -> 1 at center
+      const eased = t * t;              // ease-in for smoother center
+      const a = minA + (maxA - minA) * eased;
+      this.darknessGfx.fillStyle(0xffffff, a);
+      this.darknessGfx.fillCircle(sx, sy, rr);
+    }
+    this.darknessGfx.setBlendMode(Phaser.BlendModes.NORMAL);
+    const left = this.cursors.left.isDown || this.keys.A.isDown;
+    const right = this.cursors.right.isDown || this.keys.D.isDown;
+    const jump = this.cursors.up.isDown || this.keys.W.isDown || this.keys.SPACE.isDown;
+    // Movement
+    const onGround = this.player.body.blocked.down || this.player.body.touching.down;
+    const speed = 220;
+    if (left) { this.player.setVelocityX(-speed); this.player.setFlipX(true); } else if (right) { this.player.setVelocityX(speed); this.player.setFlipX(false); } else { this.player.setVelocityX(0); }
+    if (jump && onGround) { this.player.setVelocityY(-440); window.playSfx?.('jump'); }
+    // Murder mode AI and combat
+    if (this.mode === 'murder'){
+      if (this.killer && this.killer.active){
+        const dir = Math.sign(this.player.x - this.killer.x) || 1;
+        this.killer.setVelocityX(dir * 120);
+        // Jump up to ~4 blocks when blocked horizontally, else occasional hop
+        const onGround = this.killer.body.blocked.down || this.killer.body.touching.down;
+        const hitWall = this.killer.body.blocked.left || this.killer.body.blocked.right;
+        if (onGround && (hitWall || Math.random()<0.01)) this.killer.setVelocityY(-560);
+        // contact hurts instantly
+        this.physics.world.overlap(this.player, this.killer, ()=>{ this.showToast('Jäit kiinni!'); this.time.delayedCall(500, ()=> this.exitMinigame()); });
+      }
+      // simple attack: knife or pistol
+      if (this.input.activePointer.isDown){
+        if (this.weapon === 'pistol') this.shootAtPointer(); else this.stab();
+      }
+    }
+    // Clamp to ground-only rule: if falling out, respawn safely at start
+    if (this.player.y > (WORLD_TILES_Y*TILE - 20)) this.safeRespawn();
+  }
+  damageInDesert(d){
+    // Desert-only damage (e.g., scorpions) reduces thirst more quickly
+    this.thirst = Math.max(0, this.thirst - Math.floor(d/5));
+  }
+  shootAtPointer(){
+    const p = this.input.activePointer; const wp = this.cameras.main.getWorldPoint(p.x,p.y);
+    const dx = wp.x - this.player.x, dy = wp.y - this.player.y; const d = Math.hypot(dx,dy)||1;
+    const nx=dx/d, ny=dy/d; const b = this.physics.add.image(this.player.x, this.player.y, 'tex_bullet'); b.setVelocity(nx*700, ny*700).setRotation(Math.atan2(ny,nx));
+    window.playSfx?.('shoot');
+    // hit killer
+    this.physics.add.overlap(b, this.enemies, (bullet, e)=>{ e.destroy(); bullet.destroy(); this.showToast('Pääsit karkuun!'); this.time.delayedCall(600, ()=> this.exitMinigame()); });
+    this.time.delayedCall(800, ()=> b.destroy());
+  }
+  stab(){
+    if (this._stabCd && this._stabCd > this.time.now) return; this._stabCd = this.time.now + 220;
+    const reach = 2*TILE; const px=this.player.x, py=this.player.y;
+    this.enemies.children.iterate((e)=>{ if (!e||!e.active) return; const dx=e.x-px, dy=e.y-py; if (dx*dx+dy*dy<=reach*reach){ e.destroy(); this.showToast('Pääsit karkuun!'); this.time.delayedCall(600, ()=> this.exitMinigame()); } });
+  }
+  showToast(msg){
+    const t = this.add.text(this.cameras.main.scrollX + 10, this.cameras.main.scrollY + 64, msg, { fontFamily:'monospace', fontSize:'14px', color:'#fff', backgroundColor:'#0009' }).setDepth(1000);
+    this.time.delayedCall(1200, ()=> t.destroy());
+  }
+  exitMinigame(){
+    const gameScene = this.scene.get('GameScene');
+    gameScene?.onReturnFromMinigame?.();
+    this.scene.stop();
+  }
+}
 const config = {
   type: Phaser.AUTO,
   parent: 'gameContainer',
@@ -3487,7 +3866,7 @@ const config = {
     mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH
   },
-  scene: [GameScene]
+  scene: [GameScene, MinigameScene]
 };
 
 window.addEventListener('load', () => {
@@ -3647,8 +4026,10 @@ window.addEventListener('load', () => {
   });
   const musicVol = document.getElementById('musicVol');
   const sfxVol = document.getElementById('sfxVol');
+  const sfxMute = document.getElementById('sfxMute');
   const showHearts = document.getElementById('showHearts');
   const toggleFly = document.getElementById('toggleFly');
+  const toggleBoots = document.getElementById('toggleBoots');
   const shirtColor = document.getElementById('shirtColor');
   const pantsColor = document.getElementById('pantsColor');
   const eyesGlow = document.getElementById('eyesGlow');
@@ -3656,23 +4037,49 @@ window.addEventListener('load', () => {
   const hairColor = document.getElementById('hairColor');
   const mopedColor = document.getElementById('mopedColor');
   const mopedDecal = document.getElementById('mopedDecal');
+  // Ninja controls
+  const ninjaEnable = document.getElementById('ninjaEnable');
+  const ninjaSword = document.getElementById('ninjaSword');
+  const ninjaKnife = document.getElementById('ninjaKnife');
+  const ninjaStrike = document.getElementById('ninjaStrike');
+  const ninjaRows = document.getElementById('ninjaRows');
+  const ninjaSwordRangeRow = document.getElementById('ninjaSwordRangeRow');
+  const ninjaSwordRange = document.getElementById('ninjaSwordRange');
 
   function applySettings(){
     const settings = {
       musicVol: Number(musicVol?.value||0.5),
       sfxVol: Number(sfxVol?.value||0.8),
+      sfxMute: !!sfxMute?.checked,
       showHearts: !!showHearts?.checked,
       toggleFly: !!toggleFly?.checked,
+  toggleBoots: !!toggleBoots?.checked,
       shirtColor: shirtColor?.value,
       pantsColor: pantsColor?.value,
       eyesGlow: !!eyesGlow?.checked,
       eyeColor: eyeColor?.value,
   hairColor: hairColor?.value,
   mopedColor: mopedColor?.value || window.gameScene?.moped?.color,
-  mopedDecal: mopedDecal?.value || window.gameScene?.moped?.decal
+  mopedDecal: mopedDecal?.value || window.gameScene?.moped?.decal,
+      ninja: {
+        active: !!ninjaEnable?.checked,
+        sword: Number(ninjaSword?.value||1),
+        knife: Number(ninjaKnife?.value||1),
+        strike: Number(ninjaStrike?.value||1),
+        swordRange: Number(ninjaSwordRange?.value||2)
+      }
     };
-    try { localStorage.setItem('UAG_settings', JSON.stringify(settings)); } catch(e) {}
+  try { localStorage.setItem('UAG_settings', JSON.stringify(settings)); } catch(e) {}
+  // Apply SFX volume/mute immediately
+  const vol = settings.sfxMute ? 0 : Math.max(0, Math.min(1, settings.sfxVol));
+  try { window.Sfx?.setVolume(vol); } catch(e) {}
+  if (sfxVol) sfxVol.disabled = !!settings.sfxMute;
     if (window.gameScene && toggleFly) { window.gameScene.state.canFly = !!toggleFly.checked; window.gameScene.saveState(); window.gameScene.updateInventoryUI(); }
+    if (window.gameScene && toggleBoots) {
+      // Allow enabling/disabling bounce shoes from settings regardless of ownership
+      window.gameScene.state.bounceShoes = !!toggleBoots.checked;
+      window.gameScene.saveState();
+    }
     if (showHearts) { const h=document.getElementById('health'); if (h) h.style.display = showHearts.checked ? '' : 'none'; }
     // Apply appearance to player in-game
     if (window.gameScene) {
@@ -3685,6 +4092,20 @@ window.addEventListener('load', () => {
   if (mopedColor?.value) { window.gameScene.moped.color = mopedColor.value; }
   if (mopedDecal?.value) { window.gameScene.moped.decal = mopedDecal.value; }
   window.gameScene.updateMopedAppearance?.();
+      // Apply ninja settings
+      if (typeof settings.ninja?.active === 'boolean') window.gameScene.ninja.active = settings.ninja.active;
+      if (settings.ninja) {
+        window.gameScene.ninja.swordLevel = settings.ninja.sword;
+        window.gameScene.ninja.knifeLevel = settings.ninja.knife;
+        window.gameScene.ninja.strikeLevel = settings.ninja.strike;
+        window.gameScene.ninja.swordRange = settings.ninja.swordRange || 2;
+      }
+      // Toggle UI rows according to Ninja enabled
+      if (ninjaRows && ninjaSwordRangeRow && ninjaEnable) {
+        const on = !!ninjaEnable.checked;
+        ninjaRows.style.display = on ? 'none' : '';
+        ninjaSwordRangeRow.style.display = on ? '' : 'none';
+      }
     }
   }
 
@@ -3694,9 +4115,11 @@ window.addEventListener('load', () => {
     if (raw) {
       const s = JSON.parse(raw);
       if (musicVol && typeof s.musicVol === 'number') musicVol.value = s.musicVol;
-      if (sfxVol && typeof s.sfxVol === 'number') sfxVol.value = s.sfxVol;
+  if (sfxVol && typeof s.sfxVol === 'number') sfxVol.value = s.sfxVol;
+  if (sfxMute && typeof s.sfxMute === 'boolean') sfxMute.checked = s.sfxMute;
       if (showHearts && typeof s.showHearts === 'boolean') showHearts.checked = s.showHearts;
-      if (toggleFly && typeof s.toggleFly === 'boolean') toggleFly.checked = s.toggleFly;
+  if (toggleFly && typeof s.toggleFly === 'boolean') toggleFly.checked = s.toggleFly;
+  if (toggleBoots && typeof s.toggleBoots === 'boolean') toggleBoots.checked = s.toggleBoots;
       if (shirtColor && typeof s.shirtColor === 'string') shirtColor.value = s.shirtColor;
       if (pantsColor && typeof s.pantsColor === 'string') pantsColor.value = s.pantsColor;
       if (eyesGlow && typeof s.eyesGlow === 'boolean') eyesGlow.checked = s.eyesGlow;
@@ -3704,13 +4127,25 @@ window.addEventListener('load', () => {
       if (hairColor && typeof s.hairColor === 'string') hairColor.value = s.hairColor;
   if (mopedColor && typeof s.mopedColor === 'string') mopedColor.value = s.mopedColor;
   if (mopedDecal && typeof s.mopedDecal === 'string') mopedDecal.value = s.mopedDecal;
+      if (s.ninja) {
+        if (ninjaEnable) ninjaEnable.checked = !!s.ninja.active;
+        if (ninjaSword) ninjaSword.value = String(s.ninja.sword||1);
+        if (ninjaKnife) ninjaKnife.value = String(s.ninja.knife||1);
+        if (ninjaStrike) ninjaStrike.value = String(s.ninja.strike||1);
+        if (ninjaSwordRange) ninjaSwordRange.value = String(s.ninja.swordRange||2);
+        if (ninjaRows && ninjaSwordRangeRow && ninjaEnable) {
+          const on = !!s.ninja.active; ninjaRows.style.display = on ? 'none' : ''; ninjaSwordRangeRow.style.display = on ? '' : 'none';
+        }
+      }
     }
   } catch(e) {}
 
   musicVol?.addEventListener('input', applySettings);
   sfxVol?.addEventListener('input', applySettings);
+  sfxMute?.addEventListener('change', applySettings);
   showHearts?.addEventListener('change', applySettings);
   toggleFly?.addEventListener('change', applySettings);
+  toggleBoots?.addEventListener('change', applySettings);
   shirtColor?.addEventListener('input', applySettings);
   pantsColor?.addEventListener('input', applySettings);
   eyesGlow?.addEventListener('change', applySettings);
@@ -3718,6 +4153,11 @@ window.addEventListener('load', () => {
   hairColor?.addEventListener('input', applySettings);
   mopedColor?.addEventListener('input', applySettings);
   mopedDecal?.addEventListener('change', applySettings);
+  ninjaEnable?.addEventListener('change', applySettings);
+  ninjaSword?.addEventListener('change', applySettings);
+  ninjaKnife?.addEventListener('change', applySettings);
+  ninjaStrike?.addEventListener('change', applySettings);
+  ninjaSwordRange?.addEventListener('input', applySettings);
 
   // Initial apply
   applySettings();
