@@ -52,7 +52,7 @@ class GameScene extends Phaser.Scene {
 
     // Tool system
     this.tools = {
-  owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, cannon: true, minigun: true, knife: true, sniper: true, bazooka: true, grenade: true, nuke: true, plane: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true },
+  owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, cannon: true, minigun: true, knife: true, sniper: true, bazooka: true, grenade: true, nuke: true, plane: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true, wizard: true },
       equipped: 'pistol',
       cannonMode: 'minigun' // 'minigun' | 'sniper'
     };
@@ -301,6 +301,11 @@ class GameScene extends Phaser.Scene {
     // Knife
     g.fillStyle(0xbfbfbf,1); g.fillRect(0,2,10,2); g.fillStyle(0x8b5a2b,1); g.fillRect(10,1,3,4); g.lineStyle(1,0x777777,1); g.strokeRect(0,2,10,2);
     g.generateTexture('tex_weapon_knife',14,8); g.clear();
+  // Wand (wizard)
+  g.fillStyle(0x8b5a2b,1); g.fillRect(0,3,16,2); // stick
+  g.fillStyle(0xffdd66,1); g.fillCircle(16,4,3); // tip
+  g.lineStyle(1,0x5a3a1b,1); g.strokeRect(0,3,16,2);
+  g.generateTexture('tex_weapon_wand',20,8); g.clear();
   // Laser (galactic mode)
   g.fillStyle(0xff2a2a,1); g.fillRect(0,0,14,3); g.generateTexture('tex_laser',14,3); g.clear();
   // Web pellet (web mode)
@@ -539,6 +544,8 @@ class GameScene extends Phaser.Scene {
           else this.placePlank(pointer);
         }
         else {
+          // Wizard: start hold detection, action will be decided on pointerup
+          if (this.tools.equipped === 'wizard') { this._wizardDownAt = this.time.now; return; }
           // Cannon fire when equipped
           if (this.tools.equipped === 'cannon') {
             this.fireCannon(pointer);
@@ -555,6 +562,15 @@ class GameScene extends Phaser.Scene {
           }
         }
       }
+    });
+    // Wizard pointerup: tap vs hold
+    this.input.on('pointerup', (pointer)=>{
+      if (!this.started || this.isPaused) return;
+      if (this.tools.equipped !== 'wizard') { this._wizardDownAt = 0; return; }
+      const t0 = this._wizardDownAt || 0; this._wizardDownAt = 0;
+      if (!t0) return;
+      const heldMs = this.time.now - t0;
+      if (heldMs >= 260) this.wizardChargeRelease(pointer); else this.wizardTapFire(pointer);
     });
   this.input.keyboard.on('keydown-C', () => { if (this.started && !this.isPaused) this.craftPlank(); });
   this.input.keyboard.on('keydown-V', () => { if (this.started && !this.isPaused) this.craftPlank(); });
@@ -956,7 +972,8 @@ class GameScene extends Phaser.Scene {
   else if (right) { this.player.setVelocityX(speed); this.player.setFlipX(false); }
     else { this.player.setVelocityX(0); }
 
-    if (this.state.canFly) {
+    const canFlyNow = this.state.canFly || this.tools.equipped === 'wizard';
+    if (canFlyNow) {
   if (jump) this.player.setVelocityY(-280);
     } else if (jump && onGround) {
       const jv = this.state.bounceShoes ? -560 : -440;
@@ -2384,6 +2401,23 @@ class GameScene extends Phaser.Scene {
     };
   }
 
+  // --- Wizard actions ---
+  wizardTapFire(pointer){
+    // Tap: fire 2 magic shots, range 13 tiles
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const sx = this.player.x, sy = this.player.y;
+    // two shots with slight spread
+    this.spawnBulletFrom(sx, sy, wp.x, wp.y, { speed: 700, lifeTiles: 13, spread: 0.05 });
+    this.time.delayedCall(70, ()=>{
+      this.spawnBulletFrom(sx, sy, wp.x, wp.y, { speed: 700, lifeTiles: 13, spread: 0.05 });
+    });
+    window.playSfx?.('shoot');
+  }
+  wizardChargeRelease(pointer){
+    // Hold+release: fire an explosive rocket
+    this.fireBazooka(pointer);
+  }
+
   // Spawn a bullet from (sx,sy) to (tx,ty). opts: { speed, lifeTiles, spread, ignoreCannonKey }
   spawnBulletFrom(sx, sy, tx, ty, opts={}){
     const dirX = tx - sx, dirY = ty - sy;
@@ -2625,7 +2659,7 @@ class GameScene extends Phaser.Scene {
     slots[3].textContent = `Kolikot: ${this.state.coins}`;
     slots[4].textContent = this.state.canFly ? 'Lento ✓' : '';
     // Show equipped tool
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu' };
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu', wizard:'Velho' };
   const eq = this.tools.equipped;
   const suffix = eq === 'cannon' ? ` (${this.tools.cannonMode==='minigun'?'Minigun':'Tarkka'})` : '';
   const modeLabel = this.mode?.current==='classic' ? 'Klassinen' : (this.mode.current==='galactic'?'Star':'Spider');
@@ -2641,8 +2675,9 @@ class GameScene extends Phaser.Scene {
     else if (eq === 'sniper') key = 'tex_weapon_sniper';
     else if (eq === 'bazooka') key = 'tex_weapon_bazooka';
     else if (eq === 'knife') key = 'tex_weapon_knife';
-    else if (eq === 'grenade') key = 'tex_grenade';
+  else if (eq === 'grenade') key = 'tex_grenade';
     else if (eq === 'nuke') key = 'tex_nuke';
+  else if (eq === 'wizard') key = 'tex_weapon_wand';
     // Show cannon as a small barrel when selected (optional)
     else if (eq === 'cannon') key = 'tex_cannon_base';
     // Hide for non-weapon tools
@@ -2663,7 +2698,7 @@ class GameScene extends Phaser.Scene {
     const select = document.getElementById('toolSelect');
     if (!select) return;
     select.innerHTML = '';
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu' };
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu', wizard:'Velho' };
     for (const tool in this.tools.owned) {
       if (this.tools.owned[tool]) {
         const option = document.createElement('option');
