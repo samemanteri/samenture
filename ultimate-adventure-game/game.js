@@ -39,6 +39,9 @@ class GameScene extends Phaser.Scene {
   this.state = { health: 4, coins: 0, canFly: false, bounceShoes: false };
     this.nearMerchant = false;
 
+    // Upgrades
+    this.upgrades = { copperUnlocked: false };
+
     // World persistence diff
     this.worldDiff = { removed: [], placed: [] }; // removed: ["tx,ty"], placed: [{tx,ty,type,textureKey}]
 
@@ -52,7 +55,8 @@ class GameScene extends Phaser.Scene {
 
     // Tool system
     this.tools = {
-  owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, cannon: true, minigun: true, knife: true, sniper: true, bazooka: true, grenade: true, nuke: true, plane: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true, wizard: true },
+  owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, bow: true, cannon: true, minigun: true, ak47: true, knife: true, sniper: true, bazooka: true, grenade: true, nuke: true, plane: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true, wizard: true, flame: true, pamppu: true, mine: true, rod: true,
+           pistol_copper: false, bow_copper: false, minigun_copper: false, ak47_copper: false, knife_copper: false, sniper_copper: false, bazooka_copper: false, grenade_copper: false, nuke_copper: false, pamppu_copper: false, plane_copper: false },
       equipped: 'pistol',
       cannonMode: 'minigun' // 'minigun' | 'sniper'
     };
@@ -75,6 +79,9 @@ class GameScene extends Phaser.Scene {
 
   // Ninja mode state
   this.ninja = { active: false, swordLevel: 1, knifeLevel: 1, strikeLevel: 1, striking: false, strikeEndAt: 0 };
+
+  // Pamppu (baton) state: modes 'attack' or 'block'
+  this.pamppu = { mode: 'attack' };
 
   // Pause state
   this.isPaused = false;
@@ -102,6 +109,13 @@ class GameScene extends Phaser.Scene {
   // Plane state (auto-turrets, faster)
   this.plane = { sprite: null, turrets: [], mounted: false, zone: null, prompt: null, speedMult: 2.2 };
   this.nearPlane = false;
+
+  // Weather: thunderstorms
+  this.weather = { isStorm: false, nextLightningAt: 0, nextStormCheckAt: 0, stormEndsAt: 0 };
+
+  // Lightning rods (Ukonjohdatin)
+  this.rodPositions = []; // [{tx,ty,hp}]
+  this.rods = new Map(); // key -> { image, hp }
 
   // Day/Night cycle and darkness overlay
   this.day = { period: 120000, start: 0, isNight: false, lastIsNight: false };
@@ -134,6 +148,9 @@ class GameScene extends Phaser.Scene {
   this.portalPositions = []; // persisted [{tx,ty,color}]
   this.portals = new Map(); // key -> { color:string, sprite:Phaser.GameObjects.GameObject }
   this.portal = { placeColor: 'blue', countdown: null, countdownKey: null, countdownText: null, cooldownUntil: 0 };
+  // Mines (red-dot landmines) - placed by player, explode on enemy contact, then disappear
+  this.minePositions = []; // persisted [{tx,ty}]
+  this.mines = new Map(); // key -> { image, zone }
   
   }
 
@@ -223,8 +240,10 @@ class GameScene extends Phaser.Scene {
   g.lineStyle(2,0x2a992a,1); g.strokeRect(2,2,6,6); g.strokeRect(12,2,6,6);
   g.generateTexture('tex_boots', bootW, bootH); g.clear();
 
-    // Tree trunk and leaves
-    g.fillStyle(0x6b3a1b,1); g.fillRect(0,0,TILE,TILE); g.lineStyle(2,0x4a2a12,1); g.strokeRect(0,0,TILE,TILE); g.generateTexture('tex_trunk',TILE,TILE); g.clear();
+  // Tree trunk and leaves
+  g.fillStyle(0x6b3a1b,1); g.fillRect(0,0,TILE,TILE); g.lineStyle(2,0x4a2a12,1); g.strokeRect(0,0,TILE,TILE); g.generateTexture('tex_trunk',TILE,TILE); g.clear();
+  // Oak (tammi) trunk variant
+  g.fillStyle(0x8e5b2f,1); g.fillRect(0,0,TILE,TILE); g.lineStyle(2,0x6b3f1b,1); g.strokeRect(0,0,TILE,TILE); g.generateTexture('tex_tammi',TILE,TILE); g.clear();
     g.fillStyle(0x2e8b57,1); g.fillRect(0,0,TILE,TILE); g.lineStyle(2,0x1d5d3a,1); g.strokeRect(0,0,TILE,TILE); g.generateTexture('tex_leaves',TILE,TILE); g.clear();
 
     // Bird texture
@@ -291,6 +310,12 @@ class GameScene extends Phaser.Scene {
     g.fillStyle(0x555555,1); g.fillRect(0,1,16,6); g.fillStyle(0x777777,1); g.fillRect(10,0,6,2); g.fillRect(10,6,6,2);
     g.lineStyle(1,0x333333,1); g.strokeRect(0,1,16,6);
     g.generateTexture('tex_weapon_minigun',18,8); g.clear();
+  // AK-47 (simple wood+metal)
+  g.fillStyle(0x5f5f5f,1); g.fillRect(0,2,16,3); // barrel
+  g.fillStyle(0x8b5a2b,1); g.fillRect(5,4,6,3); // wooden handguard
+  g.fillStyle(0x5f5f5f,1); g.fillRect(14,1,4,6); // muzzle block
+  g.lineStyle(1,0x333333,1); g.strokeRect(0,2,16,3);
+  g.generateTexture('tex_weapon_ak47',20,8); g.clear();
     // Sniper rifle
     g.fillStyle(0x4a4a4a,1); g.fillRect(0,2,22,3); g.fillStyle(0x8b5a2b,1); g.fillRect(3,4,6,2); g.lineStyle(1,0x222222,1); g.strokeRect(0,2,22,3);
     g.generateTexture('tex_weapon_sniper',24,8); g.clear();
@@ -301,15 +326,41 @@ class GameScene extends Phaser.Scene {
     // Knife
     g.fillStyle(0xbfbfbf,1); g.fillRect(0,2,10,2); g.fillStyle(0x8b5a2b,1); g.fillRect(10,1,3,4); g.lineStyle(1,0x777777,1); g.strokeRect(0,2,10,2);
     g.generateTexture('tex_weapon_knife',14,8); g.clear();
+  // Baton (Pamppu)
+  g.fillStyle(0x5a3a1b,1); g.fillRect(0,3,18,2); g.lineStyle(1,0x2e1d0e,1); g.strokeRect(0,3,18,2);
+  g.generateTexture('tex_weapon_baton',20,8); g.clear();
   // Wand (wizard)
   g.fillStyle(0x8b5a2b,1); g.fillRect(0,3,16,2); // stick
   g.fillStyle(0xffdd66,1); g.fillCircle(16,4,3); // tip
   g.lineStyle(1,0x5a3a1b,1); g.strokeRect(0,3,16,2);
   g.generateTexture('tex_weapon_wand',20,8); g.clear();
+  // Flamethrower icon
+  g.fillStyle(0x444444,1); g.fillRect(0,2,14,4); g.fillStyle(0xcc6622,1); g.fillRect(14,1,4,6); g.fillStyle(0x666666,1); g.fillRect(4,6,8,2);
+  g.lineStyle(1,0x222222,1); g.strokeRect(0,2,14,4);
+  g.generateTexture('tex_weapon_flamer',20,10); g.clear();
+  // Flame particle
+  g.fillStyle(0xff9933,0.9); g.fillCircle(4,4,4); g.fillStyle(0xffcc66,0.8); g.fillCircle(3,3,2.4);
+  g.generateTexture('tex_flame',8,8); g.clear();
   // Laser (galactic mode)
   g.fillStyle(0xff2a2a,1); g.fillRect(0,0,14,3); g.generateTexture('tex_laser',14,3); g.clear();
   // Web pellet (web mode)
   g.fillStyle(0xffffff,1); g.fillCircle(3,3,3); g.generateTexture('tex_web',6,6); g.clear();
+  // Arrow projectile
+  g.fillStyle(0x8b5a2b,1); g.fillRect(0,3,10,2); // shaft
+  g.fillStyle(0xffffff,1); g.fillRect(10,2,2,4); // tip
+  g.fillStyle(0xbfbfbf,1); g.fillRect(0,2,2,4); // fletching block
+  g.generateTexture('tex_arrow',12,8); g.clear();
+  // Bow weapon sprite (draw arc path for the bow limb)
+  g.lineStyle(2,0x8b5a2b,1);
+  g.beginPath();
+  g.arc(6,4,6,-Math.PI/2,Math.PI/2,false);
+  g.strokePath();
+  // string
+  g.fillStyle(0xffffff,1); g.fillRect(1,3,10,2);
+  g.generateTexture('tex_weapon_bow',14,8); g.clear();
+  // Mine red dot
+  g.fillStyle(0xff2222,1); g.fillCircle(4,4,3.2); g.lineStyle(1,0xaa0000,1); g.strokeCircle(4,4,3.2);
+  g.generateTexture('tex_mine',8,8); g.clear();
 
   // Rocket texture (for bazooka)
   g.fillStyle(0x777777,1); g.fillRect(0,0,12,4);
@@ -375,6 +426,29 @@ class GameScene extends Phaser.Scene {
   makePortal('tex_portal_red', 0xff4a4a);
   makePortal('tex_portal_green', 0x59d659);
   makePortal('tex_portal_yellow', 0xffd34a);
+  // Lightning rod (Ukonjohdatin) texture (tile-sized)
+  g.clear();
+  // base
+  g.fillStyle(0x9a9a9a,1); g.fillRect(TILE/2-12, TILE-8, 24, 6);
+  g.lineStyle(2,0x666666,1); g.strokeRect(TILE/2-12, TILE-8, 24, 6);
+  // pole
+  g.fillStyle(0xbfbfbf,1); g.fillRect(TILE/2-3, TILE-26, 6, 20);
+  g.lineStyle(2,0x7a7a7a,1); g.strokeRect(TILE/2-3, TILE-26, 6, 20);
+  // tip cap
+  g.fillStyle(0xffee88,1); g.fillRect(TILE/2-5, TILE-30, 10, 6);
+  g.generateTexture('tex_rod', TILE, TILE); g.clear();
+
+  // Lightning bolt segment (8 x TILE), to be stretched vertically
+  g.fillStyle(0xffff66,1);
+  // simple zig-zag rectangles
+  const segH = Math.max(6, Math.floor(TILE/6));
+  g.fillRect(2,0,4,segH);
+  g.fillRect(0,segH,4,segH);
+  g.fillRect(2,segH*2,4,segH);
+  g.fillRect(4,segH*3,4,segH);
+  g.fillRect(2,segH*4,4,segH);
+  g.fillRect(0,segH*5,4,segH);
+  g.generateTexture('tex_lightning', 8, TILE); g.clear();
   // Decal icons
   // skull
   g.fillStyle(0xffffff,1); g.fillCircle(3,3,2.2); g.fillRect(1.2,4.5,3.6,2); g.fillStyle(0x000000,1); g.fillCircle(2.3,2.8,0.5); g.fillCircle(3.7,2.8,0.5);
@@ -501,13 +575,20 @@ class GameScene extends Phaser.Scene {
       }
       bullet.destroy();
     }, null, this);
-  // Boss hit handling: only minigun bullets and bazooka explosions can damage
+  // Boss hit handling: only minigun bullets and bazooka/grenade/nuke explosions can damage
   this.physics.add.overlap(this.bullets, this.bosses, (bullet, boss)=>{
-      if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); bullet.destroy(); return; }
+      if (bullet?.getData && bullet.getData('isRocket')) {
+        // propagate copper info into explosion for extra damage if applicable
+        const isCopper = !!bullet.getData('copper');
+        this.explodeAt(bullet.x, bullet.y, { copper: isCopper });
+        bullet.destroy();
+        return;
+      }
       const eq = this.tools?.equipped;
-      const isMinigunBullet = (eq === 'minigun') && !bullet.getData('isWeb');
+      const isMinigunBullet = ((eq === 'minigun' || eq === 'minigun_copper') && !bullet.getData('isWeb'));
       if (isMinigunBullet) {
-        this.damageBoss(boss, 1);
+        const dmg = (bullet.getData('isCopper') || eq === 'minigun_copper') ? 2 : 1;
+        this.damageBoss(boss, dmg);
       }
       bullet.destroy();
     }, null, this);
@@ -532,6 +613,8 @@ class GameScene extends Phaser.Scene {
         else if (this.tools.equipped === 'teleport') this.placePortal(pointer);
         else if (this.tools.equipped === 'slimecloner') this.placeSlimeCloner(pointer);
         else if (this.tools.equipped === 'torch') this.placeTorch(pointer);
+        else if (this.tools.equipped === 'mine') this.placeMine(pointer);
+        else if (this.tools.equipped === 'rod') this.placeRod(pointer);
         else if (this.tools.equipped === 'cloner') this.cycleCloneTarget();
         else this.placePlank(pointer);
       } else {
@@ -541,20 +624,33 @@ class GameScene extends Phaser.Scene {
           else if (this.tools.equipped === 'slimecloner') this.placeSlimeCloner(pointer);
           else if (this.tools.equipped === 'torch') this.placeTorch(pointer);
           else if (this.tools.equipped === 'cloner') this.spawnClone(pointer);
+          else if (this.tools.equipped === 'mine') this.placeMine(pointer);
+          else if (this.tools.equipped === 'rod') this.placeRod(pointer);
           else this.placePlank(pointer);
         }
         else {
           // Wizard: start hold detection, action will be decided on pointerup
           if (this.tools.equipped === 'wizard') { this._wizardDownAt = this.time.now; return; }
+          // Flamethrower: start continuous stream
+          if (this.tools.equipped === 'flame') { this._flameOn = true; this._flameNextAt = 0; return; }
+          // AK-47: start continuous fire
+          if (this.tools.equipped === 'ak47') { this._akOn = true; this._akNextAt = 0; return; }
+          // Pamppu: if in attack mode, perform melee strike
+          if (this.tools.equipped === 'pamppu') { if (this.pamppu.mode === 'attack') { this.pamppuAttack(pointer); } return; }
+          // Mine: left-click removes (placing handled by right-click/touch placeMode)
           // Cannon fire when equipped
           if (this.tools.equipped === 'cannon') {
             this.fireCannon(pointer);
           } else if (this.tools.equipped === 'teleport') {
             this.removePortalAtPointer(pointer);
+          } else if (this.tools.equipped === 'mine') {
+            this.removeMineAtPointer(pointer);
           } else if (this.tools.equipped === 'slimecloner') {
             this.removeSlimeClonerAtPointer(pointer);
           } else if (this.tools.equipped === 'torch') {
             this.removeTorchAtPointer(pointer);
+          } else if (this.tools.equipped === 'rod') {
+            this.removeRodAtPointer(pointer);
           } else if (this.tools.equipped === 'cloner') {
             this.spawnClone(pointer);
           } else {
@@ -566,6 +662,8 @@ class GameScene extends Phaser.Scene {
     // Wizard pointerup: tap vs hold
     this.input.on('pointerup', (pointer)=>{
       if (!this.started || this.isPaused) return;
+  if (this.tools.equipped === 'flame') { this._flameOn = false; }
+  if (this.tools.equipped === 'ak47') { this._akOn = false; }
       if (this.tools.equipped !== 'wizard') { this._wizardDownAt = 0; return; }
       const t0 = this._wizardDownAt || 0; this._wizardDownAt = 0;
       if (!t0) return;
@@ -653,6 +751,15 @@ class GameScene extends Phaser.Scene {
     });
     this.input.keyboard.on('keydown-SHIFT', ()=>{ this._mopedBoost = true; });
     this.input.keyboard.on('keyup-SHIFT',   ()=>{ this._mopedBoost = false; });
+    // Shift toggle for Pamppu mode when equipped
+    this.input.keyboard.on('keydown-SHIFT', ()=>{
+      if (!this.started || this.isPaused) return;
+      if (this.tools.equipped === 'pamppu') {
+        this.pamppu.mode = this.pamppu.mode === 'attack' ? 'block' : 'attack';
+        this.updateInventoryUI();
+        this.showToast(`Pamppu: ${this.pamppu.mode==='attack'?'Lyönti':'Suojaus'}`);
+      }
+    });
 
     // Camera/bounds (endless)
     const worldH = WORLD_TILES_Y * TILE;
@@ -766,6 +873,29 @@ class GameScene extends Phaser.Scene {
         drawBeam(sx, sy, ex, ey, 0x9ad3ff);
       }
     }
+
+    // Flamethrower: apply continuous stream when held
+    if (this._flameOn && this.tools.equipped === 'flame') {
+      if (!this._flameNextAt || this.time.now >= this._flameNextAt) {
+        const p = this.input.activePointer; this.tickFlame(p);
+        this._flameNextAt = this.time.now + 80; // cadence
+      }
+    }
+
+    // AK-47: continuous fire while held. Range limited to 9 tiles.
+    if (this._akOn && (this.tools.equipped === 'ak47' || this.tools.equipped === 'ak47_copper')) {
+      if (!this._akNextAt || this.time.now >= this._akNextAt) {
+        const p = this.input.activePointer;
+        const wp = this.cameras.main.getWorldPoint(p.x, p.y);
+        // fire a slightly inaccurate bullet with short life (9 tiles)
+        const extra = (this.tools.equipped === 'ak47_copper') ? 17 : 0;
+        this.spawnBulletFrom(this.player.x, this.player.y, wp.x, wp.y, { speed: 820, lifeTiles: 9 + extra, spread: 0.06, isMinigun: true });
+        this._akNextAt = this.time.now + 90; // ~11 rps
+      }
+    }
+
+  // Thunderstorm scheduler and lightning strikes
+  this.maybeRunStorm();
 
     // Update car proximity and prompt
     if (this.car?.sprite) {
@@ -1010,7 +1140,7 @@ class GameScene extends Phaser.Scene {
     }
 
     // Slime AI: simple patrol and hop
-    if (this.slimes) {
+  if (this.slimes) {
       this.slimes.children.iterate((sl)=>{
         if (!sl || !sl.body) return;
         if (sl._webbedUntil && this.time.now < sl._webbedUntil) { sl.setVelocity(0,0); return; } else if (sl._webbedUntil && this.time.now >= sl._webbedUntil) { sl._webbedUntil = 0; }
@@ -1546,23 +1676,39 @@ class GameScene extends Phaser.Scene {
       if (this.hook.active) this.cancelGrapple(); else this.tryGrapple(pointer);
       return;
     }
-  if (this.tools.equipped === 'pistol' || this.tools.equipped === 'minigun' || this.tools.equipped === 'sniper' || this.tools.equipped === 'cannon' || this.tools.equipped === 'bazooka' || this.tools.equipped === 'grenade' || this.tools.equipped === 'nuke' || this.tools.equipped === 'plane') {
+  if (this.tools.equipped === 'pistol' || this.tools.equipped === 'pistol_copper' || this.tools.equipped === 'bow' || this.tools.equipped === 'bow_copper' || this.tools.equipped === 'minigun' || this.tools.equipped === 'minigun_copper' || this.tools.equipped === 'sniper' || this.tools.equipped === 'sniper_copper' || this.tools.equipped === 'cannon' || this.tools.equipped === 'bazooka' || this.tools.equipped === 'bazooka_copper' || this.tools.equipped === 'grenade' || this.tools.equipped === 'grenade_copper' || this.tools.equipped === 'nuke' || this.tools.equipped === 'nuke_copper' || this.tools.equipped === 'plane' || this.tools.equipped === 'plane_copper') {
       if (this.tools.equipped === 'pistol') {
         this.shootBullet(pointer);
+      } else if (this.tools.equipped === 'pistol_copper') {
+        this.shootBullet(pointer, { copper: true });
+      } else if (this.tools.equipped === 'bow') {
+        this.fireBow(pointer);
+      } else if (this.tools.equipped === 'bow_copper') {
+        this.fireBow(pointer, { copper: true });
       } else if (this.tools.equipped === 'minigun') {
         this.shootMinigunBurst(pointer);
+      } else if (this.tools.equipped === 'minigun_copper') {
+        this.shootMinigunBurst(pointer, { copper: true });
       } else if (this.tools.equipped === 'cannon') {
         this.fireCannon(pointer);
       } else if (this.tools.equipped === 'bazooka') {
         this.fireBazooka(pointer);
+      } else if (this.tools.equipped === 'bazooka_copper') {
+        this.fireBazooka(pointer, { copper: true });
       } else if (this.tools.equipped === 'grenade') {
         this.throwGrenade(pointer);
+      } else if (this.tools.equipped === 'grenade_copper') {
+        this.throwGrenade(pointer, { copper: true });
       } else if (this.tools.equipped === 'nuke') {
         this.fireNuke(pointer);
+      } else if (this.tools.equipped === 'nuke_copper') {
+        this.fireNuke(pointer, { copper: true });
       } else if (this.tools.equipped === 'plane') {
         this.firePlaneGun(pointer);
+      } else if (this.tools.equipped === 'plane_copper') {
+        this.firePlaneGun(pointer, { copper: true });
       } else {
-        this.shootSniper(pointer);
+        this.shootSniper(pointer, { copper: this.tools.equipped === 'sniper_copper' });
       }
       return;
     }
@@ -1587,7 +1733,7 @@ class GameScene extends Phaser.Scene {
       if (!allowed) { this.showToast('Tarvitset hakun! (2: puuhakku)'); return; }
     }
 
-    if (type === 'trunk') this.dropWood(sprite.x, sprite.y);
+  if (type === 'trunk' || type === 'tammi') this.dropWood(sprite.x, sprite.y);
     else if (type === 'ground') { if (Math.random() < 0.30) this.dropCoin(sprite.x, sprite.y); }
     else if (type === 'stone') { if (Math.random() < 0.85) this.dropStone(sprite.x, sprite.y); }
 
@@ -1665,6 +1811,52 @@ class GameScene extends Phaser.Scene {
     this.saveState();
   }
 
+  // --- Landmine (Miina) ---
+  placeMine(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    if (this.blocks.get(key)) { this.showToast('Paikka varattu'); return; }
+    if (!this.hasSolidBlockAt(tx, ty+1)) { this.showToast('Tarvitset lattian alle'); return; }
+    if (this.mines.has(key)) { this.showToast('Miina jo tässä'); return; }
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    const img = this.add.image(x,y,'tex_mine').setDepth(5);
+    const zone = this.add.zone(x, y, TILE*0.9, TILE*0.9);
+    this.physics.world.enable(zone, Phaser.Physics.Arcade.STATIC_BODY);
+    zone.setData('type','mine'); zone.setData('tx',tx); zone.setData('ty',ty);
+    const trigger = (e)=>{
+      if (!zone.active) return;
+      // explode small (reuse bazooka small explodeAt)
+      this.explodeAt(x,y);
+      img.destroy(); zone.destroy();
+      this.mines.delete(key);
+      this.minePositions = this.minePositions.filter(p=> !(p.tx===tx && p.ty===ty));
+      this.saveState();
+    };
+    // Trigger from any enemy group contact
+    this.physics.add.overlap(zone, this.slimes, (z, e)=> trigger(e), null, this);
+    this.physics.add.overlap(zone, this.birds, (z, e)=> trigger(e), null, this);
+    this.physics.add.overlap(zone, this.zombies, (z, e)=> trigger(e), null, this);
+    this.physics.add.overlap(zone, this.oppos, (z, e)=> trigger(e), null, this);
+    this.physics.add.overlap(zone, this.bosses, (z, e)=> trigger(e), null, this);
+    if (this.currentChunk!=null) { this.chunks.get(this.currentChunk)?.decor.push(img); this.chunks.get(this.currentChunk)?.decor.push(zone); }
+    this.mines.set(key, { image: img, zone });
+    this.minePositions.push({ tx, ty });
+    this.saveState();
+  }
+
+  removeMineAtPointer(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    const m = this.mines.get(key);
+    if (!m) { this.showToast('Ei miinaa'); return; }
+    m.image?.destroy(); m.zone?.destroy?.();
+    this.mines.delete(key);
+    this.minePositions = this.minePositions.filter(p=> !(p.tx===tx && p.ty===ty));
+    this.saveState();
+  }
+
   removeSlimeClonerAtPointer(pointer){
     const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
     const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
@@ -1679,6 +1871,136 @@ class GameScene extends Phaser.Scene {
     e.image?.destroy(); e.zone?.destroy?.();
     this.slimeCloners.delete(key);
     this.slimeClonerPositions = this.slimeClonerPositions.filter(p=> !(p.tx===tx && p.ty===ty));
+  }
+
+  // --- Lightning Rod (Ukonjohdatin) ---
+  placeRod(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    if (this.blocks.get(key)) { this.showToast('Paikka varattu'); return; }
+    if (!this.hasSolidBlockAt(tx, ty+1)) { this.showToast('Tarvitset lattian alle'); return; }
+    if (this.rods.has(key)) { this.showToast('Ukonjohdatin jo tässä'); return; }
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    const img = this.add.image(x,y,'tex_rod').setDepth(4);
+    this.decor.add(img);
+    if (this.currentChunk!=null) this.chunks.get(this.currentChunk)?.decor.push(img);
+    const hp = 3;
+    this.rods.set(key, { image: img, hp });
+    this.rodPositions.push({ tx, ty, hp });
+    this.saveState();
+  }
+  removeRodAtPointer(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    const r = this.rods.get(key);
+    if (!r) { this.showToast('Ei ukkosenjohdatinta'); return; }
+    r.image?.destroy();
+    this.rods.delete(key);
+    this.rodPositions = this.rodPositions.filter(p=> !(p.tx===tx && p.ty===ty));
+    this.saveState();
+  }
+
+  // Storm tick: start/stop storms and schedule lightning while active
+  maybeRunStorm(){
+    const w = this.weather;
+    const now = this.time.now;
+    if (now >= (w.nextStormCheckAt||0)) {
+      w.nextStormCheckAt = now + 5000;
+      if (!w.isStorm) {
+        // small chance to start a storm, more likely at night
+        const base = 0.04; // 4% every 5s
+        const bonus = this.day.isNight ? 0.05 : 0;
+        if (Math.random() < base + bonus) {
+          w.isStorm = true;
+          const dur = Phaser.Math.Between(12000, 22000);
+          w.stormEndsAt = now + dur;
+          w.nextLightningAt = now + Phaser.Math.Between(600, 1600);
+          this.showToast('Ukkosmyrsky alkaa!');
+        }
+      } else {
+        if (now >= w.stormEndsAt) {
+          w.isStorm = false; w.stormEndsAt = 0; w.nextLightningAt = 0;
+          this.showToast('Myrsky ohi');
+        }
+      }
+    }
+    if (!w.isStorm) return;
+    if (now >= (w.nextLightningAt||0)) {
+      w.nextLightningAt = now + Phaser.Math.Between(800, 2400);
+      this.triggerLightningStrike();
+    }
+  }
+
+  // Choose a strike target near player or a placed rod; apply protection and damage
+  triggerLightningStrike(){
+    // Prefer a rod near the player (within 12 tiles horizontally)
+    const ptx = Math.floor(this.player.x / TILE);
+    let target = null; let onRod = false;
+    for (const rp of this.rodPositions) {
+      if (Math.abs(rp.tx - ptx) <= 12 && Math.abs((rp.ty*TILE + TILE/2) - this.player.y) <= 22*TILE) {
+        target = { x: rp.tx*TILE + TILE/2, y: rp.ty*TILE + TILE/2, tx: rp.tx, ty: rp.ty };
+        onRod = true; break;
+      }
+    }
+    if (!target) {
+      const tx = ptx + Phaser.Math.Between(-8, 8);
+      const ty = Math.max(2, SURFACE_Y - Phaser.Math.Between(0, 6));
+      target = { x: tx*TILE + TILE/2, y: ty*TILE + TILE/2, tx, ty };
+    }
+    this.drawLightning(target.x, target.y);
+    // Damage logic: if no rod in 4-tile radius horizontally, and player is near strike, hurt
+    const protectR = 4;
+    let protectedByRod = false;
+    for (const rp of this.rodPositions) {
+      if (Math.abs(rp.tx - target.tx) <= protectR && Math.abs(rp.ty - target.ty) <= 6) { protectedByRod = true; break; }
+    }
+    const dx = Math.abs(this.player.x - target.x);
+    const dy = Math.abs(this.player.y - target.y);
+    if (dx < 120 && dy < 120) {
+      if (!protectedByRod) this.damage(2);
+    }
+    // If hit a rod directly, degrade it; break when hp <= 0
+    if (onRod) {
+      const key = `${target.tx},${target.ty}`; const r = this.rods.get(key);
+      if (r) {
+        r.hp = (r.hp||3) - 1;
+        // small zap effect on the rod
+        this.time.delayedCall(80, ()=>{ if (r.image?.setTint) r.image.setTint(0xffffaa); });
+        this.time.delayedCall(280, ()=>{ if (r.image?.clearTint) r.image.clearTint(); });
+        // persist
+        for (const rp of this.rodPositions){ if (rp.tx===target.tx && rp.ty===target.ty){ rp.hp = r.hp; break; } }
+        if (r.hp <= 0) {
+          r.image?.destroy(); this.rods.delete(key);
+          this.rodPositions = this.rodPositions.filter(p=> !(p.tx===target.tx && p.ty===target.ty));
+          this.showToast('Ukonjohdatin hajosi');
+        }
+        this.saveState();
+      }
+    }
+  }
+
+  drawLightning(x, y){
+    // vertical bolt from top of screen to y
+    const cam = this.cameras.main;
+    const sx = x - cam.scrollX, sy = y - cam.scrollY;
+    // flash overlay
+    const gfx = this.add.graphics().setScrollFactor(0).setDepth(880);
+    gfx.fillStyle(0xffffff, 0.18); gfx.fillRect(0,0,cam.width,cam.height);
+    this.time.delayedCall(80, ()=> gfx.destroy());
+    // bolt images
+    const h = sy + 10; const seg = this.add.image(sx, h/2, 'tex_lightning').setScrollFactor(0).setDepth(881);
+    seg.setOrigin(0.5, 0); seg.setScale(1, h / TILE);
+    // add a few side flickers
+    for (let i=0;i<2;i++){
+      const ex = sx + Phaser.Math.Between(-10,10);
+      const eh = (h*0.6) + Phaser.Math.Between(-20,20);
+      const s2 = this.add.image(ex, eh/2, 'tex_lightning').setScrollFactor(0).setDepth(881);
+      s2.setOrigin(0.5, 0); s2.setScale(0.6, eh / TILE);
+      this.time.delayedCall(120 + i*20, ()=> s2.destroy());
+    }
+    this.time.delayedCall(120, ()=> seg.destroy());
   }
 
   maybeRunSlimeCloners(){
@@ -1807,7 +2129,8 @@ class GameScene extends Phaser.Scene {
     // 2-tile reach melee strike against slimes
     if (this._knifeCd && this._knifeCd > this.time.now) return;
     this._knifeCd = this.time.now + 220; // cooldown
-    const reach = 2 * TILE;
+    const isCopper = this.tools.equipped === 'knife_copper';
+    const reach = (2 + (isCopper ? 17 : 0)) * TILE;
     const px = this.player.x, py = this.player.y;
     // face towards pointer
     const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
@@ -1831,17 +2154,49 @@ class GameScene extends Phaser.Scene {
     });
   }
 
-  shootMinigunBurst(pointer){
+  pamppuAttack(pointer){
+    // 5-tile reach melee swipe in facing direction toward pointer
+    if (this._pamppuAtkCd && this._pamppuAtkCd > this.time.now) return;
+    this._pamppuAtkCd = this.time.now + 220;
+    const isCopper = this.tools.equipped === 'pamppu_copper';
+    const reach = (5 + (isCopper ? 17 : 0)) * TILE;
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const px = this.player.x, py = this.player.y;
+    const dirRight = (wp.x >= px);
+    this.player.setFlipX(!dirRight);
+    // Visual swipe
+    const g = this.add.graphics().setDepth(800);
+    const sx = px, sy = py; const ex = px + (dirRight? reach : -reach), ey = py;
+    g.lineStyle(6, 0xffffff, 0.6); g.beginPath(); g.moveTo(sx, sy); g.lineTo(ex, ey); g.strokePath();
+    this.time.delayedCall(80, ()=> g.destroy());
+    // Helper to hit a group
+    const hitEnemy = (e, coins=0)=>{
+      if (!e || !e.active) return;
+      const dx = e.x - px, dy = e.y - py; const forward = dirRight ? dx>=0 : dx<=0; const d2 = dx*dx + dy*dy;
+      if (forward && d2 <= reach*reach) { const x=e.x,y=e.y; e.destroy(); if (coins>0) this.dropCoins(x,y,coins); }
+    };
+    this.slimes?.children?.iterate?.(e=>hitEnemy(e,3));
+    this.birds?.children?.iterate?.(e=>hitEnemy(e,0));
+    this.zombies?.children?.iterate?.(e=>hitEnemy(e,2));
+    this.oppos?.children?.iterate?.(e=>hitEnemy(e,2));
+    // Boss minor damage + knockback
+    this.bosses?.children?.iterate?.((b)=>{
+      if (!b || !b.active) return; const dx=b.x-px, dy=b.y-py; const forward = dirRight ? dx>=0 : dx<=0; const d2=dx*dx+dy*dy;
+      if (forward && d2 <= reach*reach) { this.damageBoss(b, isCopper ? 2 : 1); try{ b.setVelocity((dirRight?1:-1)*160, -60); }catch(e){} }
+    });
+  }
+
+  shootMinigunBurst(pointer, opts = {}){
     // Fire 5 bullets with slight spread and short interval
     const shots = 5;
     for (let i=0;i<shots;i++){
       this.time.delayedCall(i*60, ()=>{
-  this.shootBullet(pointer, { spread: 0.10, markMinigun: true });
+  this.shootBullet(pointer, { spread: 0.10, markMinigun: true, copper: !!opts.copper });
       });
     }
   }
 
-  shootSniper(pointer){
+  shootSniper(pointer, opts = {}){
     // Long range 17 tiles, faster projectile
     const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
     const dirX = worldPoint.x - this.player.x;
@@ -1850,12 +2205,14 @@ class GameScene extends Phaser.Scene {
     if (dist === 0) return;
     const normX = dirX / dist;
     const normY = dirY / dist;
-    const bullet = this.bullets.create(this.player.x, this.player.y, 'tex_bullet');
+  const bullet = this.bullets.create(this.player.x, this.player.y, 'tex_bullet');
   const speed = 980; // a bit faster for tarkka
     bullet.setVelocity(normX * speed, normY * speed);
     bullet.setRotation(Math.atan2(normY, normX));
-  const lifeMs = (19 * TILE / speed) * 1000; // longer reach for tarkka
-    this.time.delayedCall(lifeMs, () => { if (bullet.active) bullet.destroy(); });
+  const extraTiles = opts.copper ? 17 : 0;
+  const lifeMs = ((19 + extraTiles) * TILE / speed) * 1000; // longer reach (+17 if copper)
+  if (opts.copper) bullet.setData('isCopper', true);
+  this.time.delayedCall(lifeMs, () => { if (bullet.active) bullet.destroy(); });
     // Cannon hit check (shared approach)
     bullet._lastCheck = 0;
     bullet.preUpdate = (t, dt)=>{
@@ -1872,7 +2229,7 @@ class GameScene extends Phaser.Scene {
   }
 
   // Bazooka: fires a slow rocket that explodes on impact without breaking blocks, damaging enemies in radius
-  fireBazooka(pointer){
+  fireBazooka(pointer, opts = {}){
     if (this._bazookaCd && this._bazookaCd > this.time.now) return; // small cooldown
     this._bazookaCd = this.time.now + 600;
     const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
@@ -1881,7 +2238,8 @@ class GameScene extends Phaser.Scene {
   window.playSfx?.('bazooka');
     rocket.setTexture('tex_rocket');
     rocket.setData('isRocket', true);
-    rocket.setData('noBlockDamage', true);
+  rocket.setData('noBlockDamage', true);
+  if (opts.copper) rocket.setData('copper', true);
     // override tile-scan to not remove cannons and to explode on platform hit (handled in onBulletHit already)
     rocket._lastCheck = 0;
     const origPreUpdate = Phaser.Physics.Arcade.Sprite.prototype.preUpdate;
@@ -1908,7 +2266,7 @@ class GameScene extends Phaser.Scene {
   }
 
   // Grenade: throw, then explode after ~4.4s; destroys exactly 123 tiles (diamond R=7 + 10 cells from R=8 ring)
-  throwGrenade(pointer){
+  throwGrenade(pointer, opts = {}){
     if (this._grenadeCd && this._grenadeCd > this.time.now) return;
     this._grenadeCd = this.time.now + 500; // small throw cadence
     const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
@@ -1928,12 +2286,12 @@ class GameScene extends Phaser.Scene {
       Phaser.Physics.Arcade.Image.prototype.preUpdate.call(this, t, dt);
       if (t >= this._explodeAt) {
         const gx = this.x, gy = this.y; this.destroy();
-        scene.explodeGrenadeAt(gx, gy);
+        scene.explodeGrenadeAt(gx, gy, opts);
       }
     };
   }
 
-  explodeGrenadeAt(x, y){
+  explodeGrenadeAt(x, y, opts = {}){
     const cx = Math.floor(x / TILE);
     const cy = Math.floor(y / TILE);
     // Build diamond radius R=7 (113 tiles), then add 10 cells from the R=8 ring to reach 123 tiles
@@ -1972,7 +2330,7 @@ class GameScene extends Phaser.Scene {
       const spr = this.blocks.get(key);
       if (!spr) continue;
       const type = spr.getData('type');
-      if (type === 'trunk') this.dropWood(spr.x, spr.y);
+  if (type === 'trunk' || type==='tammi') this.dropWood(spr.x, spr.y);
       else if (type === 'ground') { if (Math.random() < 0.30) this.dropCoin(spr.x, spr.y); }
       else if (type === 'stone') { if (Math.random() < 0.85) this.dropStone(spr.x, spr.y); }
       if (type === 'plank') {
@@ -1993,20 +2351,21 @@ class GameScene extends Phaser.Scene {
     this.slimes?.children?.iterate?.(s=>{ if (inBox(s)) { const ex=s.x, ey=s.y; s.destroy(); this.dropCoins(ex,ey,3); } });
     this.zombies?.children?.iterate?.(z=>{ if (inBox(z)) { const ex=z.x, ey=z.y; z.destroy(); this.dropCoins(ex,ey,2); } });
     this.clones?.children?.iterate?.(c=>{ if (inBox(c)) c.destroy(); });
-    this.bosses?.children?.iterate?.(bs=>{ if (inBox(bs)) this.damageBoss(bs, 2); });
+  const bossDmg = opts.copper ? 3 : 2;
+  this.bosses?.children?.iterate?.(bs=>{ if (inBox(bs)) this.damageBoss(bs, bossDmg); });
 
     this.saveState();
   }
 
   // Nuke: instant detonation at cursor, destroys exactly 111 blocks
-  fireNuke(pointer){
+  fireNuke(pointer, opts = {}){
     if (this._nukeCd && this._nukeCd > this.time.now) return;
     this._nukeCd = this.time.now + 2000;
     const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-    this.explodeNukeAt(wp.x, wp.y);
+    this.explodeNukeAt(wp.x, wp.y, opts);
   }
 
-  explodeNukeAt(x, y){
+  explodeNukeAt(x, y, opts = {}){
     const cx = Math.floor(x / TILE);
     const cy = Math.floor(y / TILE);
     const toClear = new Set();
@@ -2035,7 +2394,7 @@ class GameScene extends Phaser.Scene {
       const spr = this.blocks.get(key);
       if (!spr) continue;
       const type = spr.getData('type');
-      if (type === 'trunk') this.dropWood(spr.x, spr.y);
+  if (type === 'trunk' || type==='tammi') this.dropWood(spr.x, spr.y);
       else if (type === 'ground') { if (Math.random() < 0.35) this.dropCoin(spr.x, spr.y); }
       else if (type === 'stone') { if (Math.random() < 0.9) this.dropStone(spr.x, spr.y); }
       if (type === 'plank') {
@@ -2057,14 +2416,15 @@ class GameScene extends Phaser.Scene {
     this.slimes?.children?.iterate?.(s=>{ if (inBox(s)) { const ex=s.x, ey=s.y; s.destroy(); this.dropCoins(ex,ey,5); } });
     this.zombies?.children?.iterate?.(z=>{ if (inBox(z)) { const ex=z.x, ey=z.y; z.destroy(); this.dropCoins(ex,ey,4); } });
     this.clones?.children?.iterate?.(c=>{ if (inBox(c)) c.destroy(); });
-    this.bosses?.children?.iterate?.(bs=>{ if (inBox(bs)) this.damageBoss(bs, 8); });
+  const bossDmg = opts.copper ? 10 : 8;
+  this.bosses?.children?.iterate?.(bs=>{ if (inBox(bs)) this.damageBoss(bs, bossDmg); });
 
     this.saveState();
     this.showToast?.('Ydinase: 111 plokkia tuhottu');
   }
 
   // Plane gun: shoots a very long-range bullet (1111 tiles), no block damage
-  firePlaneGun(pointer){
+  firePlaneGun(pointer, opts = {}){
     if (this._planeCd && this._planeCd > this.time.now) return;
     this._planeCd = this.time.now + 150;
     const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
@@ -2079,15 +2439,17 @@ class GameScene extends Phaser.Scene {
     bullet.setRotation(Math.atan2(ny, nx));
     bullet.setData('noBlockDamage', true);
     // lifetime for 1111 tiles
-    const lifeMs = (1111 * TILE / speed) * 1000;
-    this.time.delayedCall(lifeMs, ()=>{ if (bullet.active) bullet.destroy(); });
+  const extraTiles = opts.copper ? 17 : 0;
+  const lifeMs = ((1111 + extraTiles) * TILE / speed) * 1000;
+  if (opts.copper) bullet.setData('isCopper', true);
+  this.time.delayedCall(lifeMs, ()=>{ if (bullet.active) bullet.destroy(); });
     // do not remove cannons
     bullet._lastCheck = 0;
     const origPreUpdate = Phaser.Physics.Arcade.Sprite.prototype.preUpdate;
     bullet.preUpdate = function(t, dt){ origPreUpdate.call(this, t, dt); };
   }
 
-  explodeAt(x, y){
+  explodeAt(x, y, opts = {}){
     // 6x6 tile area centered around impact (even size -> skew one tile to negative side)
     const cx = Math.floor(x / TILE);
     const cy = Math.floor(y / TILE);
@@ -2109,7 +2471,7 @@ class GameScene extends Phaser.Scene {
         if (!spr) continue;
         const type = spr.getData('type');
         // drops similar to mining/shooting
-        if (type === 'trunk') this.dropWood(spr.x, spr.y);
+  if (type === 'trunk' || type==='tammi') this.dropWood(spr.x, spr.y);
         else if (type === 'ground') { if (Math.random() < 0.30) this.dropCoin(spr.x, spr.y); }
         else if (type === 'stone') { if (Math.random() < 0.85) this.dropStone(spr.x, spr.y); }
         // persistence
@@ -2131,7 +2493,8 @@ class GameScene extends Phaser.Scene {
   this.oppos?.children?.iterate?.(o=>{ if (inBox(o)) { const ex=o.x, ey=o.y; o.destroy(); this.dropCoins(ex,ey,2); } });
     this.slimes?.children?.iterate?.(s=>{ if (inBox(s)) { const ex=s.x, ey=s.y; s.destroy(); this.dropCoins(ex,ey,3); } });
     this.zombies?.children?.iterate?.(z=>{ if (inBox(z)) { const ex=z.x, ey=z.y; z.destroy(); this.dropCoins(ex,ey,2); } });
-  this.bosses?.children?.iterate?.(bs=>{ if (inBox(bs)) { this.damageBoss(bs, 2); } });
+  const bossDmg = opts.copper ? 3 : 2;
+  this.bosses?.children?.iterate?.(bs=>{ if (inBox(bs)) { this.damageBoss(bs, bossDmg); } });
     this.clones?.children?.iterate?.(c=>{ if (inBox(c)) c.destroy(); });
 
     this.saveState();
@@ -2215,7 +2578,7 @@ class GameScene extends Phaser.Scene {
 
   // --- Clone tool ---
   cycleCloneTarget(){
-    const order = ['none','ground','stone','sand','cactus','trunk'];
+    const order = ['none','ground','stone','sand','cactus','trunk','tammi'];
     const idx = order.indexOf(this.cloneSettings.target);
     this.cloneSettings.target = order[(idx+1) % order.length];
     this.showToast(`Kloonaus kohde: ${this.cloneSettings.target}`);
@@ -2248,6 +2611,29 @@ class GameScene extends Phaser.Scene {
   onBirdHit(player, bird){ this._hitByEnemy(bird); }
   onSlimeHit(player, slime){ this._hitByEnemy(slime); }
   _hitByEnemy(enemy){
+    // Pamppu block: negate hit if blocking and enemy is in front within 5 tiles
+    if (this.tools?.equipped === 'pamppu' && this.pamppu?.mode === 'block') {
+      const R = 5 * TILE;
+      const dx = (enemy?.x||this.player.x) - this.player.x;
+      const dy = (enemy?.y||this.player.y) - this.player.y;
+      const forward = this.player.flipX ? (dx <= 0) : (dx >= 0);
+      const d2 = dx*dx + dy*dy;
+      if (forward && d2 <= R*R) {
+        // brief block cooldown to avoid stunlock
+        if (!this._pamppuBlockCd || this.time.now >= this._pamppuBlockCd) {
+          this._pamppuBlockCd = this.time.now + 150;
+          // knock enemy back slightly
+          try { const dir = Math.sign(dx) || (this.player.flipX?-1:1); enemy.setVelocity(dir*220, -80); } catch(e){}
+          // FX: short highlight line
+          const g = this.add.graphics().setDepth(800);
+          const sx = this.player.x, sy = this.player.y;
+          const ex = sx + (this.player.flipX?-1:1) * (5*TILE);
+          g.lineStyle(6, 0xffee88, 0.35); g.beginPath(); g.moveTo(sx, sy); g.lineTo(ex, sy); g.strokePath();
+          this.time.delayedCall(80, ()=> g.destroy());
+          return; // cancel damage
+        }
+      }
+    }
     if (this.time.now < this.invulnUntil) return;
     this.invulnUntil = this.time.now + 1000;
     this.damage(1);
@@ -2382,8 +2768,10 @@ class GameScene extends Phaser.Scene {
   const speed = 600; // px per second
   bullet.setVelocity(normX * speed, normY * speed);
     bullet.setRotation(Math.atan2(normY, normX));
+  if (opts.copper) bullet.setData('isCopper', true);
   // Destroy after 4 tiles distance (time = distance / speed)
-  const lifeMs = (4 * TILE / speed) * 1000;
+  const extraTiles = opts.copper ? 17 : 0;
+  const lifeMs = ((4 + extraTiles) * TILE / speed) * 1000;
   this.time.delayedCall(lifeMs, () => { if (bullet.active) bullet.destroy(); });
     // On each step, check collision with cannons by tile sampling (lightweight)
     bullet._lastCheck = 0;
@@ -2416,6 +2804,94 @@ class GameScene extends Phaser.Scene {
   wizardChargeRelease(pointer){
     // Hold+release: fire an explosive rocket
     this.fireBazooka(pointer);
+  }
+
+  // --- Bow (Jousipyssy) ---
+  fireBow(pointer, opts = {}){
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const sx = this.player.x, sy = this.player.y;
+    const speed = 760; // fast arrow
+  const lifeTiles = 19 + (opts.copper ? 17 : 0); // +17 tiles for copper
+    const shoot = ()=>{
+      const b = this.spawnBulletFrom(sx, sy, wp.x, wp.y, { speed, lifeTiles, spread: 0.02 });
+      if (b && b.setTexture) b.setTexture('tex_arrow');
+      window.playSfx?.('shoot');
+    };
+    shoot();
+    this.time.delayedCall(80, shoot);
+  }
+
+  // --- Flamethrower ---
+  tickFlame(pointer){
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const sx = this.player.x, sy = this.player.y;
+    const dx = wp.x - sx, dy = wp.y - sy;
+    const d = Math.hypot(dx, dy) || 1;
+    const nx = dx/d, ny = dy/d;
+    const L = 8 * TILE; // forward length
+    const H = 3 * TILE; // thickness (height)
+    // FX: flame blobs
+    const blobs = 8;
+    for (let i=1;i<=blobs;i++){
+      const t = (i/blobs) * L;
+      const jitter = (Math.random()-0.5) * (H*0.6);
+      const px = -ny, py = nx;
+      const x = sx + nx*t + px*jitter;
+      const y = sy + ny*t + py*jitter;
+      const img = this.add.image(x, y, 'tex_flame').setDepth(7);
+      img.setScale(1 + Math.random()*0.3);
+      img.setRotation(Math.atan2(ny, nx) + (Math.random()-0.5)*0.4);
+      this.time.delayedCall(120, ()=> img.destroy());
+    }
+    // SFX (reuse)
+    try { window.playSfx?.('minigun'); } catch(e){}
+    // Damage enemies within oriented strip
+    const alongHit = (e)=>{
+      if (!e || !e.active) return;
+      const ex=e.x - sx, ey=e.y - sy;
+      const proj = ex*nx + ey*ny; // along
+      const perp = Math.abs(ex*(-ny) + ey*(nx)); // distance to center line
+      if (proj >= 0 && proj <= L && perp <= H*0.5) {
+        if (!e._nextBurnAt || this.time.now >= e._nextBurnAt) {
+          e._nextBurnAt = this.time.now + 160; // burn tick
+          if (this.bosses && this.bosses.contains && this.bosses.contains(e)) this.damageBoss(e, 1);
+          else {
+            const exx=e.x, eyy=e.y; e.destroy();
+            if (this.slimes && this.slimes.contains && this.slimes.contains(e)) this.dropCoins(exx, eyy, 3);
+            if (this.oppos && this.oppos.contains && this.oppos.contains(e)) this.dropCoins(exx, eyy, 2);
+            if (this.zombies && this.zombies.contains && this.zombies.contains(e)) this.dropCoins(exx, eyy, 2);
+          }
+        }
+      }
+    };
+    this.slimes?.children?.iterate?.(alongHit);
+    this.birds?.children?.iterate?.(alongHit);
+    this.zombies?.children?.iterate?.(alongHit);
+    this.oppos?.children?.iterate?.(alongHit);
+    this.bosses?.children?.iterate?.(alongHit);
+    // Burn blocks: trunk, leaves, cactus
+    const step = TILE/2;
+    for (let t=0; t<=L; t+=step){
+      for (let off=-H/2; off<=H/2; off+=TILE){
+        const px = -ny, py = nx;
+        const x = sx + nx*t + px*off;
+        const y = sy + ny*t + py*off;
+        const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+        const key = `${tx},${ty}`;
+        const spr = this.blocks.get(key);
+        if (!spr) continue;
+        const type = spr.getData('type');
+        if (type==='trunk' || type==='tammi' || type==='leaves' || type==='cactus'){
+          if (type==='trunk' || type==='tammi') this.dropWood(spr.x, spr.y);
+          if (type === 'plank') {
+            this.worldDiff.placed = this.worldDiff.placed.filter(p=>!(p.tx===tx && p.ty===ty));
+          } else {
+            if (!this.worldDiff.removed.includes(key)) this.worldDiff.removed.push(key);
+          }
+          spr.destroy(); this.blocks.delete(key); if (type==='cactus') this.cactusTiles.delete(key);
+        }
+      }
+    }
   }
 
   // Spawn a bullet from (sx,sy) to (tx,ty). opts: { speed, lifeTiles, spread, ignoreCannonKey }
@@ -2463,7 +2939,8 @@ class GameScene extends Phaser.Scene {
   onBulletHit(bullet, block) {
     // If rocket: explode and don't damage blocks
     if (bullet?.getData && bullet.getData('isRocket')) {
-      this.explodeAt(bullet.x, bullet.y);
+      const isCopper = !!bullet.getData('copper');
+      this.explodeAt(bullet.x, bullet.y, { copper: isCopper });
       try { bullet.destroy(); } catch(e) {}
       return;
     }
@@ -2473,7 +2950,7 @@ class GameScene extends Phaser.Scene {
     const ty = Math.floor(block.y / TILE);
     const key = `${tx},${ty}`;
     const type = block.getData('type');
-    if (type === 'trunk') this.dropWood(block.x, block.y);
+  if (type === 'trunk' || type==='tammi') this.dropWood(block.x, block.y);
     else if (type === 'ground') { if (Math.random() < 0.30) this.dropCoin(block.x, block.y); }
     else if (type === 'stone') { if (Math.random() < 0.85) this.dropStone(block.x, block.y); }
     // Update persistence
@@ -2659,9 +3136,13 @@ class GameScene extends Phaser.Scene {
     slots[3].textContent = `Kolikot: ${this.state.coins}`;
     slots[4].textContent = this.state.canFly ? 'Lento ✓' : '';
     // Show equipped tool
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu', wizard:'Velho' };
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin',
+    pistol_copper:'Pistooli (Kupari)', bow_copper:'Jousipyssy (Kupari)', minigun_copper:'Minigun (Kupari)', ak47_copper:'AK-47 (Kupari)', knife_copper:'Puukko (Kupari)', sniper_copper:'Tarkka-ase (Kupari)', bazooka_copper:'Bazooka (Kupari)', grenade_copper:'Kranaatti (Kupari)', nuke_copper:'Ydinase (Kupari)', pamppu_copper:'Pamppu (Kupari)', plane_copper:'Lentokone (Kupari)'
+  };
   const eq = this.tools.equipped;
-  const suffix = eq === 'cannon' ? ` (${this.tools.cannonMode==='minigun'?'Minigun':'Tarkka'})` : '';
+  let suffix = '';
+  if (eq === 'cannon') suffix = ` (${this.tools.cannonMode==='minigun'?'Minigun':'Tarkka'})`;
+  if (eq === 'pamppu') suffix = ` (${this.pamppu.mode==='attack'?'Lyönti':'Suojaus'})`;
   const modeLabel = this.mode?.current==='classic' ? 'Klassinen' : (this.mode.current==='galactic'?'Star':'Spider');
   slots[5].textContent = `Työkalu: ${toolNames[eq]}${suffix}  |  Tila: ${modeLabel}`;
   }
@@ -2669,7 +3150,7 @@ class GameScene extends Phaser.Scene {
   updateWeaponSprite(){
     if (!this.weaponSprite) return;
     const eq = this.tools?.equipped;
-    let key = null;
+  let key = null;
     if (eq === 'pistol') key = 'tex_weapon_pistol';
     else if (eq === 'minigun') key = 'tex_weapon_minigun';
     else if (eq === 'sniper') key = 'tex_weapon_sniper';
@@ -2678,8 +3159,18 @@ class GameScene extends Phaser.Scene {
   else if (eq === 'grenade') key = 'tex_grenade';
     else if (eq === 'nuke') key = 'tex_nuke';
   else if (eq === 'wizard') key = 'tex_weapon_wand';
+  else if (eq === 'pamppu') key = 'tex_weapon_baton';
+  else if (eq === 'ak47') key = 'tex_weapon_ak47';
+  else if (eq === 'flame') key = 'tex_weapon_flamer';
+  else if (eq === 'bow') key = 'tex_weapon_bow';
     // Show cannon as a small barrel when selected (optional)
     else if (eq === 'cannon') key = 'tex_cannon_base';
+    // copper variants reuse same sprites for now
+    else if (/_copper$/.test(eq)) {
+      const base = eq.replace(/_copper$/,'');
+      const map = { pistol:'tex_weapon_pistol', minigun:'tex_weapon_minigun', sniper:'tex_weapon_sniper', bazooka:'tex_weapon_bazooka', knife:'tex_weapon_knife', grenade:'tex_grenade', nuke:'tex_nuke', wizard:'tex_weapon_wand', pamppu:'tex_weapon_baton', ak47:'tex_weapon_ak47', flame:'tex_weapon_flamer', bow:'tex_weapon_bow', cannon:'tex_cannon_base' };
+      key = map[base] || null;
+    }
     // Hide for non-weapon tools
     if (key) {
       this.weaponSprite.setTexture(key).setVisible(true);
@@ -2698,7 +3189,9 @@ class GameScene extends Phaser.Scene {
     const select = document.getElementById('toolSelect');
     if (!select) return;
     select.innerHTML = '';
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', cannon:'Tykki', minigun:'Minigun', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu', wizard:'Velho' };
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin',
+    pistol_copper:'Pistooli (Kupari)', bow_copper:'Jousipyssy (Kupari)', minigun_copper:'Minigun (Kupari)', ak47_copper:'AK-47 (Kupari)', knife_copper:'Puukko (Kupari)', sniper_copper:'Tarkka-ase (Kupari)', bazooka_copper:'Bazooka (Kupari)', grenade_copper:'Kranaatti (Kupari)', nuke_copper:'Ydinase (Kupari)', pamppu_copper:'Pamppu (Kupari)', plane_copper:'Lentokone (Kupari)'
+  };
     for (const tool in this.tools.owned) {
       if (this.tools.owned[tool]) {
         const option = document.createElement('option');
@@ -2809,6 +3302,47 @@ class GameScene extends Phaser.Scene {
   this.torches.set(`${p.tx},${p.ty}`, { image: img, flicker });
       }
     }
+    // Re-spawn saved mines
+    if (Array.isArray(this.minePositions)) {
+      for (const p of this.minePositions) {
+        const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+        const img = this.add.image(x,y,'tex_mine').setDepth(5);
+        const zone = this.add.zone(x, y, TILE*0.9, TILE*0.9);
+        this.physics.world.enable(zone, Phaser.Physics.Arcade.STATIC_BODY);
+        zone.setData('type','mine'); zone.setData('tx',p.tx); zone.setData('ty',p.ty);
+        const key = `${p.tx},${p.ty}`;
+        const trigger = ()=>{
+          if (!zone.active) return;
+          this.explodeAt(x,y);
+          img.destroy(); zone.destroy();
+          this.mines.delete(key);
+          this.minePositions = this.minePositions.filter(q=> !(q.tx===p.tx && q.ty===p.ty));
+          this.saveState();
+        };
+        this.physics.add.overlap(zone, this.slimes, trigger, null, this);
+        this.physics.add.overlap(zone, this.birds, trigger, null, this);
+        this.physics.add.overlap(zone, this.zombies, trigger, null, this);
+        this.physics.add.overlap(zone, this.oppos, trigger, null, this);
+        this.physics.add.overlap(zone, this.bosses, trigger, null, this);
+        const cx = Math.floor(p.tx / CHUNK_W);
+        this.chunks.get(cx)?.decor.push(img);
+        this.chunks.get(cx)?.decor.push(zone);
+        this.mines.set(key, { image: img, zone });
+      }
+    }
+
+    // Re-spawn saved lightning rods
+    if (Array.isArray(this.rodPositions)) {
+      for (const p of this.rodPositions) {
+        const key = `${p.tx},${p.ty}`;
+        const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+        const img = this.add.image(x,y,'tex_rod').setDepth(4);
+        this.decor.add(img);
+        const cx = Math.floor(p.tx / CHUNK_W);
+        this.chunks.get(cx)?.decor.push(img);
+        this.rods.set(key, { image: img, hp: (typeof p.hp === 'number' ? p.hp : 3) });
+      }
+    }
   }
 
   ensureChunksAround(centerX){
@@ -2913,7 +3447,11 @@ class GameScene extends Phaser.Scene {
         const tx = startTx + 2 + Math.floor(rng() * (CHUNK_W - 4));
         const baseTy = SURFACE_Y - 1;
         const height = 3 + Math.floor(rng()*3);
-        for (let h=0; h<height; h++) this.addBlock(tx, baseTy-h, 'tex_trunk', 'trunk', true);
+        // 25% chance to generate an oak (tammi) tree
+        const isTammi = rng() < 0.25;
+        const trunkTex = isTammi ? 'tex_tammi' : 'tex_trunk';
+        const trunkType = isTammi ? 'tammi' : 'trunk';
+        for (let h=0; h<height; h++) this.addBlock(tx, baseTy-h, trunkTex, trunkType, true);
         for (let lx=-2; lx<=2; lx++) for (let ly=-2; ly<=0; ly++) {
           if (Math.abs(lx)+Math.abs(ly) <= 3) this.addBlock(tx+lx, baseTy - height + ly, 'tex_leaves', 'leaves', false);
         }
@@ -2993,6 +3531,9 @@ class GameScene extends Phaser.Scene {
   // if this decor was a torch, clear handle
   const tt = this.torches.get(k);
   if (tt && tt.image === d) { tt.image = null; }
+  // if this decor was a lightning rod, clear handle
+  const rr = this.rods.get(k);
+  if (rr && rr.image === d) { rr.image = null; }
       d.destroy();
     }
     // Pickups
@@ -3092,6 +3633,23 @@ class GameScene extends Phaser.Scene {
             const flicker = { seed: Math.random()*Math.PI*2, speed: 2 + Math.random()*1.2, ampR: 0.05, ampA: 0.15 };
             this.torches.set(key, { image: img, flicker });
           }
+        }
+      }
+    }
+
+    // Lightning rods in this chunk
+    if (Array.isArray(this.rodPositions)) {
+      for (const p of this.rodPositions) {
+        if (p.tx>=startTx && p.tx<=endTx) {
+          const key = `${p.tx},${p.ty}`;
+          const existing = this.rods.get(key);
+          if (existing?.image && existing.image.active) continue;
+          const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+          const img = this.add.image(x,y,'tex_rod').setDepth(4);
+          this.decor.add(img);
+          this.chunks.get(cx)?.decor.push(img);
+          if (existing) { existing.image = img; if (typeof p.hp === 'number') existing.hp = p.hp; }
+          else this.rods.set(key, { image: img, hp: (typeof p.hp === 'number' ? p.hp : 3) });
         }
       }
     }
@@ -3363,7 +3921,7 @@ class GameScene extends Phaser.Scene {
   }
 
   saveState(){
-  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, bounceShoes: this.state.bounceShoes, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, torches: this.torchPositions, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic' };
+  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, bounceShoes: this.state.bounceShoes, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, torches: this.torchPositions, mines: this.minePositions, rods: this.rodPositions, weather: this.weather, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic', upgrades: this.upgrades };
     try {
       const wid = window.localStorage.getItem('UAG_worldCurrent') || 'world-1';
       localStorage.setItem(`UAG_save_${wid}`, JSON.stringify(data));
@@ -3411,12 +3969,16 @@ class GameScene extends Phaser.Scene {
   if (Array.isArray(d.portals)) this.portalPositions = d.portals.slice(0, 5000);
   if (Array.isArray(d.slimeCloners)) this.slimeClonerPositions = d.slimeCloners.slice(0, 1000);
   if (Array.isArray(d.torches)) this.torchPositions = d.torches.slice(0, 3000);
+  if (Array.isArray(d.mines)) this.minePositions = d.mines.slice(0, 3000);
+  if (Array.isArray(d.rods)) this.rodPositions = d.rods.slice(0, 2000);
+  if (d.weather) { this.weather.isStorm = !!d.weather.isStorm; this.weather.nextLightningAt = d.weather.nextLightningAt||0; this.weather.nextStormCheckAt = d.weather.nextStormCheckAt||0; this.weather.stormEndsAt = d.weather.stormEndsAt||0; }
   // Migration: convert legacy doors to portals (closed doors -> blue portals at same tile)
   if (Array.isArray(d.doors)) {
     this.portalPositions = (this.portalPositions||[]).concat(d.doors.slice(0,5000).map(x=>({ tx:x.tx, ty:x.ty, color:'blue' })));
   }
   if (d.tools) this.tools = d.tools;
   if (d.mode) this.mode.current = d.mode;
+  if (d.upgrades) this.upgrades = d.upgrades;
   // Ensure pistol, cannon, minigun, knife, sniper & bazooka exist for older saves
   if (!this.tools.owned?.pistol) this.tools.owned.pistol = true;
   if (!this.tools.owned?.cannon) this.tools.owned.cannon = true;
@@ -3433,6 +3995,14 @@ class GameScene extends Phaser.Scene {
   if (!this.tools.owned?.cloner) this.tools.owned.cloner = true;
   if (!this.tools.owned?.slimecloner) this.tools.owned.slimecloner = true;
   if (!this.tools.owned?.torch) this.tools.owned.torch = true;
+  // Ensure new tools exist for older saves
+  if (!this.tools.owned?.wizard) this.tools.owned.wizard = true;
+  if (!this.tools.owned?.flame) this.tools.owned.flame = true;
+  if (!this.tools.owned?.pamppu) this.tools.owned.pamppu = true;
+  if (!this.tools.owned?.ak47) this.tools.owned.ak47 = true;
+  if (!this.tools.owned?.bow) this.tools.owned.bow = true;
+  if (!this.tools.owned?.mine) this.tools.owned.mine = true;
+  if (!this.tools.owned?.rod) this.tools.owned.rod = true;
   // Tool migration: rename door -> teleport
   if (this.tools.owned?.door) { delete this.tools.owned.door; this.tools.owned.teleport = true; }
   if (!this.tools.owned?.teleport) this.tools.owned.teleport = true;
@@ -3544,7 +4114,22 @@ class GameScene extends Phaser.Scene {
   this.tools.equipped = tool; this.updateInventoryUI(); this.updateWeaponSprite?.(); this.saveState();
   }
   cycleTool(){
-  const order = ['hand','wooden','stone','iron','pistol','cannon','minigun','knife','sniper','bazooka','grenade','nuke','plane','hook','cloner','teleport','slimecloner','torch'];
+  const order = ['hand','wooden','stone','iron',
+    'pistol','pistol_copper',
+    'bow','bow_copper',
+    'cannon',
+    'minigun','minigun_copper',
+    'ak47','ak47_copper',
+    'knife','knife_copper',
+    'sniper','sniper_copper',
+    'bazooka','bazooka_copper',
+    'grenade','grenade_copper',
+    'nuke','nuke_copper',
+    'wizard','flame',
+    'pamppu','pamppu_copper',
+    'mine','rod',
+    'plane','plane_copper',
+    'hook','cloner','teleport','slimecloner','torch'];
   if (!this.tools.owned?.hook) this.tools.owned.hook = true;
     let idx = order.indexOf(this.tools.equipped);
     for (let i=1;i<=order.length;i++){
@@ -3555,6 +4140,9 @@ class GameScene extends Phaser.Scene {
   if (this.tools.equipped === 'teleport') this.showToast('Teleportti: oikea klikkaus asettaa (8 puuta). R vaihtaa väriä. Mene porttiin: 1,2,3 -> siirto.');
   if (this.tools.equipped === 'slimecloner') this.showToast('Limaklooni: oikea asettaa laitteen, vasen poistaa. Tuottaa limoja ajan kanssa.');
   if (this.tools.equipped === 'torch') this.showToast('Soihdu: oikea asettaa, vasen poistaa. Estää zombeja yöllä.');
+  if (this.tools.equipped === 'mine') this.showToast('Miina: oikea asettaa, vasen poistaa. Räjähtää vihollisen koskiessa.');
+  if (this.tools.equipped === 'rod') this.showToast('Ukonjohdatin: oikea asettaa, vasen poistaa. Suojaa salamilta lähellä. Kestää 3 osumaa.');
+  if (/_copper$/.test(this.tools.equipped)) this.showToast('Kupari-ase: enemmän damagea ja +17 kantamaa');
   }
 
   // Small deterministic RNG for reproducible world
@@ -3977,6 +4565,23 @@ window.addEventListener('load', () => {
     const s = window.gameScene; if (!s) return;
   if (s.state.coins >= 10) { s.state.coins -= 10; s.tools.owned.pistol = true; s.updateUI(); s.updateToolSelect(); s.saveState(); }
   });
+
+  // Copper weapons purchase (both UIs)
+  const buyCopper = ()=>{
+    const s = window.gameScene; if (!s) return;
+    if (s.upgrades.copperUnlocked) { s.showToast?.('Kupari-aseet on jo ostettu'); return; }
+    if (s.state.coins >= 70) {
+      s.state.coins -= 70;
+      s.upgrades.copperUnlocked = true;
+      // Grant copper variants for all weapons
+      const w = s.tools.owned;
+      ['pistol','bow','minigun','ak47','knife','sniper','bazooka','grenade','nuke','pamppu','plane'].forEach(t=>{ const k=t+'_copper'; if (w[k]===false) w[k]=true; });
+      s.updateUI(); s.updateToolSelect(); s.saveState();
+      s.showToast?.('Kupari-aseet avattu!');
+    }
+  };
+  document.getElementById('buyCopper')?.addEventListener('click', buyCopper);
+  document.getElementById('buyCopper2')?.addEventListener('click', buyCopper);
 
   // Bounce shoes purchases
   document.getElementById('buyBoots')?.addEventListener('click', () => {
