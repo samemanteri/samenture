@@ -55,7 +55,7 @@ class GameScene extends Phaser.Scene {
 
     // Tool system
     this.tools = {
-  owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, bow: true, cannon: true, minigun: true, ak47: true, knife: true, sniper: true, bazooka: true, grenade: true, nuke: true, plane: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true, wizard: true, flame: true, pamppu: true, mine: true, rod: true,
+    owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, bow: true, cannon: true, minigun: true, ak47: true, knife: true, sniper: true, bazooka: true, grenade: true, nuke: true, plane: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true, wizard: true, flame: true, pamppu: true, mine: true, rod: true, tower: true,
            pistol_copper: false, bow_copper: false, minigun_copper: false, ak47_copper: false, knife_copper: false, sniper_copper: false, bazooka_copper: false, grenade_copper: false, nuke_copper: false, pamppu_copper: false, plane_copper: false },
       equipped: 'pistol',
       cannonMode: 'minigun' // 'minigun' | 'sniper'
@@ -143,6 +143,9 @@ class GameScene extends Phaser.Scene {
   this.cannons = [];
   this.cannonTiles = new Set(); // keys "tx,ty" where cannons are placed
   this.cannonPositions = []; // persisted positions [{tx,ty}]
+  // Towers (sniper turrets)
+  this.towerPositions = []; // persisted [{tx,ty}]
+  this.towers = new Map(); // key -> { base, head, zone, nextAt }
   this.slimeCloners = new Map(); // key -> { tx,ty, image?, zone?, nextAt:number, count:number }
   // Teleports
   this.portalPositions = []; // persisted [{tx,ty,color}]
@@ -151,6 +154,10 @@ class GameScene extends Phaser.Scene {
   // Mines (red-dot landmines) - placed by player, explode on enemy contact, then disappear
   this.minePositions = []; // persisted [{tx,ty}]
   this.mines = new Map(); // key -> { image, zone }
+  // Soldier cloner devices and spawned allies
+  this.soldierClonerPositions = []; // persisted [{tx,ty}]
+  this.soldierCloners = new Map(); // key -> { image?, zone?, nextAt, count }
+  this.soldiers = null; // physics group, set up in create()
   
   }
 
@@ -245,6 +252,46 @@ class GameScene extends Phaser.Scene {
   // Oak (tammi) trunk variant
   g.fillStyle(0x8e5b2f,1); g.fillRect(0,0,TILE,TILE); g.lineStyle(2,0x6b3f1b,1); g.strokeRect(0,0,TILE,TILE); g.generateTexture('tex_tammi',TILE,TILE); g.clear();
     g.fillStyle(0x2e8b57,1); g.fillRect(0,0,TILE,TILE); g.lineStyle(2,0x1d5d3a,1); g.strokeRect(0,0,TILE,TILE); g.generateTexture('tex_leaves',TILE,TILE); g.clear();
+  // Tower body (3 tiles, unified) — clean soldier style
+  const bodyW = TILE, bodyH = TILE*3;
+  // background block
+  g.fillStyle(0x4a4f58, 1); g.fillRect(0, 0, bodyW, bodyH);
+  // outline
+  g.lineStyle(2, 0x2b2f36, 1); g.strokeRect(0, 0, bodyW, bodyH);
+  // top parapet
+  g.fillStyle(0x3c414a, 1); g.fillRect(2, 4, bodyW-4, TILE-10);
+  g.lineStyle(2, 0x262a30, 1); g.strokeRect(2, 4, bodyW-4, TILE-10);
+  // view slits (windows)
+  g.fillStyle(0x99a4b3, 1);
+  g.fillRect(8, TILE/2 - 3, bodyW-16, 6);
+  g.fillRect(8, TILE + TILE/2 - 3, bodyW-16, 6);
+  // insignia plate at base
+  g.fillStyle(0x2e7bd3, 1); g.fillRect(bodyW/2 - 6, bodyH - TILE + 8, 12, 6);
+  g.generateTexture('tex_tower_body', bodyW, bodyH); g.clear();
+  // Tower gun (rotating, sniper-style)
+  g.fillStyle(0x3f444c,1); g.fillRoundedRect(4, 6, TILE-8, TILE-12, 6);
+  // scope
+  g.fillStyle(0x2b91ff,1); g.fillCircle(10, TILE/2, 3);
+  // barrel
+  g.fillStyle(0x2f3339,1); g.fillRect(TILE-18, TILE/2-2, 14, 4);
+  g.lineStyle(2,0x262a30,1); g.strokeRoundedRect(4,6,TILE-8,TILE-12,6);
+  g.generateTexture('tex_tower_gun', TILE, TILE); g.clear();
+
+  // Soldier sprite (to stand on tower top)
+  const solW = 28, solH = 36;
+  // body
+  g.fillStyle(0x2b4d2b,1); g.fillRect(4, 12, solW-8, 14);
+  // pants
+  g.fillStyle(0x1e361e,1); g.fillRect(6, 26, solW-12, 8);
+  // head
+  g.fillStyle(0xffdd66,1); g.fillRect(8, 6, solW-16, 8);
+  // helmet
+  g.fillStyle(0x223d22,1); g.fillRect(6, 4, solW-12, 6);
+  // eyes
+  g.fillStyle(0x000000,1); g.fillRect(12, 9, 2, 2); g.fillRect(solW-14, 9, 2, 2);
+  // vest lines
+  g.lineStyle(2, 0x1a2f1a, 1); g.strokeRect(4, 12, solW-8, 14);
+  g.generateTexture('tex_soldier', solW, solH); g.clear();
 
     // Bird texture
     const bw=36,bh=20,mid=8; g.fillStyle(0x222222,1); g.beginPath(); g.moveTo(0,bh); g.lineTo(bw,bh-mid); g.lineTo(bw*0.35,0); g.closePath(); g.fillPath(); g.lineStyle(2,0x000000,1); g.strokePath(); g.generateTexture('tex_bird',bw,bh); g.clear();
@@ -411,6 +458,13 @@ class GameScene extends Phaser.Scene {
   g.fillStyle(0x55ff77,1); g.fillCircle(TILE/2, TILE/2, 6);
   g.lineStyle(2,0x228844,1); g.strokeCircle(TILE/2, TILE/2, 6);
   g.generateTexture('tex_slimecloner', TILE, TILE); g.clear();
+  // Soldier cloner device texture (green military style)
+  g.fillStyle(0x2b3a2b,1); g.fillRoundedRect(4,6,TILE-8,TILE-12,6);
+  g.lineStyle(2,0x152015,1); g.strokeRoundedRect(4,6,TILE-8,TILE-12,6);
+  g.fillStyle(0x55aa44,1); g.fillRect(TILE/2-8, TILE/2-3, 16, 6);
+  g.fillStyle(0x77cc66,1); g.fillCircle(TILE/2, TILE/2, 4);
+  g.lineStyle(2,0x2a6622,1); g.strokeCircle(TILE/2, TILE/2, 4);
+  g.generateTexture('tex_soldiercloner', TILE, TILE); g.clear();
   // Teleport textures (colored rings)
   const makePortal = (name, color)=>{
     g.clear();
@@ -487,6 +541,7 @@ class GameScene extends Phaser.Scene {
   this.zombies = this.physics.add.group();
   this.bosses = this.physics.add.group();
   this.bullets = this.physics.add.group({ allowGravity: false });
+  this.soldiers = this.physics.add.group();
   // Enemy: Oppo group (ground jumper)
   this.oppos = this.physics.add.group();
   this.portalsGroup = this.physics.add.staticGroup();
@@ -525,6 +580,8 @@ class GameScene extends Phaser.Scene {
   this.physics.add.overlap(this.player, this.birds, this.onBirdHit, null, this);
     this.physics.add.overlap(this.player, this.slimes, this.onSlimeHit, null, this);
   this.physics.add.overlap(this.player, this.zombies, (p,z)=>{ this._hitByEnemy(z); }, null, this);
+  // Allies collide with terrain
+  this.physics.add.collider(this.soldiers, this.platforms);
   
   this.physics.add.overlap(this.player, this.bosses, (p,b)=>{ this._hitByEnemy(b); }, null, this);
   // Oppo contact: lethal on touch if it has bounce shoes
@@ -566,6 +623,12 @@ class GameScene extends Phaser.Scene {
       if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); bullet.destroy(); return; }
       this.removeClone(clone); bullet.destroy();
     }, null, this);
+  // Ignore friendly fire: bullets do not harm allied soldiers
+  this.physics.add.overlap(this.bullets, this.soldiers, (bullet, soldier)=>{
+    // Only rockets explode visually near soldiers; otherwise ignore
+    if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); }
+    bullet.destroy();
+  }, null, this);
   this.physics.add.overlap(this.bullets, this.zombies, (bullet, zombie)=>{
       if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); bullet.destroy(); return; }
       if (bullet?.getData && bullet.getData('isWeb') && this.mode.current==='web') {
@@ -612,7 +675,9 @@ class GameScene extends Phaser.Scene {
         if (this.tools.equipped === 'cannon') this.placeCannon(pointer);
         else if (this.tools.equipped === 'teleport') this.placePortal(pointer);
         else if (this.tools.equipped === 'slimecloner') this.placeSlimeCloner(pointer);
+        else if (this.tools.equipped === 'soldiercloner') this.placeSoldierCloner(pointer);
         else if (this.tools.equipped === 'torch') this.placeTorch(pointer);
+        else if (this.tools.equipped === 'tower') this.placeTower(pointer);
         else if (this.tools.equipped === 'mine') this.placeMine(pointer);
         else if (this.tools.equipped === 'rod') this.placeRod(pointer);
         else if (this.tools.equipped === 'cloner') this.cycleCloneTarget();
@@ -622,7 +687,9 @@ class GameScene extends Phaser.Scene {
           if (this.tools.equipped === 'cannon') this.placeCannon(pointer);
           else if (this.tools.equipped === 'teleport') this.placePortal(pointer);
           else if (this.tools.equipped === 'slimecloner') this.placeSlimeCloner(pointer);
+          else if (this.tools.equipped === 'soldiercloner') this.placeSoldierCloner(pointer);
           else if (this.tools.equipped === 'torch') this.placeTorch(pointer);
+          else if (this.tools.equipped === 'tower') this.placeTower(pointer);
           else if (this.tools.equipped === 'cloner') this.spawnClone(pointer);
           else if (this.tools.equipped === 'mine') this.placeMine(pointer);
           else if (this.tools.equipped === 'rod') this.placeRod(pointer);
@@ -647,8 +714,12 @@ class GameScene extends Phaser.Scene {
             this.removeMineAtPointer(pointer);
           } else if (this.tools.equipped === 'slimecloner') {
             this.removeSlimeClonerAtPointer(pointer);
+          } else if (this.tools.equipped === 'soldiercloner') {
+            this.removeSoldierClonerAtPointer(pointer);
           } else if (this.tools.equipped === 'torch') {
             this.removeTorchAtPointer(pointer);
+          } else if (this.tools.equipped === 'tower') {
+            this.removeTowerAtPointer(pointer);
           } else if (this.tools.equipped === 'rod') {
             this.removeRodAtPointer(pointer);
           } else if (this.tools.equipped === 'cloner') {
@@ -1015,6 +1086,67 @@ class GameScene extends Phaser.Scene {
       }
     }
 
+    // Towers: auto-aim precise sniper fire with reload indicator
+    if (this.towers?.size) {
+      const groups = [this.slimes, this.birds, this.zombies, this.oppos];
+      const now = this.time.now;
+      for (const [key, t] of this.towers) {
+        if (!t || !t.head) { if (t && t._gfx) t._gfx.clear(); continue; }
+        // Acquire target within range with line-of-sight
+        const range = 22 * TILE; const range2 = range*range;
+        let best=null, bestD2=range2;
+        const sx = t.head.x, sy = t.head.y;
+        for (const g of groups) {
+          g?.children?.iterate?.((e)=>{
+            if (!e || !e.active) return;
+            const dx=e.x-sx, dy=e.y-sy; const d2=dx*dx+dy*dy; if (d2>=bestD2) return;
+            // LOS: sample along ray every 1/3 tile
+            const steps = Math.ceil(Math.hypot(dx,dy)/(TILE/3));
+            let blocked=false; for (let i=1;i<=steps;i++){
+              const ix=sx + dx*i/steps, iy=sy + dy*i/steps;
+              const tx=Math.floor(ix/TILE), ty=Math.floor(iy/TILE);
+              if (this.hasSolidBlockAt(tx,ty)) { blocked=true; break; }
+            }
+            if (!blocked) { best=e; bestD2=d2; }
+          });
+        }
+        if (best) {
+          const ang = Math.atan2(best.y - sy, best.x - sx);
+          t.head.setRotation(ang);
+          // Fancy reload: 1.1s cadence, draw a small progress bar on the head
+          const cdMs = 1100;
+          if (!t.nextAt) t.nextAt = 0;
+          const left = Math.max(0, t.nextAt - now);
+          if (!t._gfx) t._gfx = this.add.graphics().setDepth(6);
+          t._gfx.clear();
+          // Draw progress only if reloading
+          if (left>0) {
+            const frac = 1 - (left / cdMs);
+            const w = 16, h = 3;
+            const px = sx - w/2, py = sy - TILE/2 - 6;
+            t._gfx.fillStyle(0x222222, 0.7); t._gfx.fillRect(px, py, w, h);
+            t._gfx.fillStyle(0x55ff77, 0.9); t._gfx.fillRect(px, py, Math.max(0.001, w*frac), h);
+          }
+          if (now >= t.nextAt) {
+            t.nextAt = now + cdMs;
+            // Fire precise long-range shot (no block damage)
+            const nx = Math.cos(ang), ny = Math.sin(ang);
+            const sx2 = sx + nx*12, sy2 = sy + ny*6;
+            const bullet = this.bullets.create(sx2, sy2, 'tex_bullet');
+            const speed = 1000;
+            bullet.setVelocity(nx*speed, ny*speed);
+            bullet.setRotation(ang);
+            bullet.setData('noBlockDamage', true);
+            const lifeMs = ((24) * TILE / speed) * 1000;
+            this.time.delayedCall(lifeMs, ()=>{ if (bullet.active) bullet.destroy(); });
+            try { window.playSfx?.('sniper'); } catch(e){}
+          }
+        } else if (t._gfx) {
+          t._gfx.clear();
+        }
+      }
+    }
+
     // Position and orient weapon sprite to aim at pointer
     if (this.weaponSprite) {
       const handOffsetX = this.player.flipX ? -10 : 10;
@@ -1158,6 +1290,56 @@ class GameScene extends Phaser.Scene {
           b._webbedUntil = 0; b.body && (b.body.allowGravity = false);
           // resume horizontal drift
           if (b.active) b.setVelocityX((Math.random()<0.5?-1:1) * (120 + Math.random()*120));
+        }
+      });
+    }
+
+    // Allied soldiers AI: move and shoot slimes/zombies (AK-47 cadence with slight spread)
+    if (this.soldiers) {
+      const now = this.time.now;
+      this.soldiers.children.iterate((s)=>{
+        if (!s || !s.active) return;
+        // aim at nearest slime/zombie within 18 tiles with simple LOS
+        const range = 18*TILE; const range2 = range*range;
+        let best=null, bestD2=range2;
+        const sx=s.x, sy=s.y;
+        const consider = (grp)=> grp?.children?.iterate?.((e)=>{
+          if (!e||!e.active) return;
+          const dx=e.x-sx, dy=e.y-sy; const d2=dx*dx+dy*dy; if (d2>=bestD2) return;
+          // LOS check against solid tiles
+          const steps = Math.ceil(Math.hypot(dx,dy)/(TILE/3));
+          let blocked=false; for (let i=1;i<=steps;i++){ const ix=sx+dx*i/steps, iy=sy+dy*i/steps; const tx=Math.floor(ix/TILE), ty=Math.floor(iy/TILE); if (this.hasSolidBlockAt(tx,ty)) { blocked=true; break; } }
+          if (!blocked) { best=e; bestD2=d2; }
+        });
+        consider(this.slimes); consider(this.zombies);
+        // Movement toward target
+        const onGround = s.body?.blocked?.down || s.body?.touching?.down;
+        if (best) {
+          const dir = Math.sign(best.x - s.x) || 1;
+          const speed = 180;
+          s.setVelocityX(dir * speed);
+          s.setFlipX(dir < 0);
+          // Jump if blocked left/right occasionally
+          const hitWall = s.body?.blocked?.left || s.body?.blocked?.right;
+          if (onGround && hitWall && (!s._ai?.nextJumpAt || now >= s._ai.nextJumpAt)) {
+            if (!s._ai) s._ai = {};
+            s._ai.nextJumpAt = now + 500;
+            s.setVelocityY(-360);
+          }
+        } else {
+          // No target: slow to idle
+          s.setVelocityX(0);
+        }
+        if (best && (!s._ai || now >= (s._ai.nextAt||0))){
+          // AK-47 burst: single shot cadence ~110ms
+          if (!s._ai) s._ai = {};
+          s._ai.nextAt = now + 110;
+          const ang = Math.atan2(best.y - sy, best.x - sx) + Phaser.Math.FloatBetween(-0.04, 0.04);
+          const nx=Math.cos(ang), ny=Math.sin(ang);
+          const sx2 = sx + nx*12, sy2 = sy + ny*6;
+          const extra = this.upgrades.copperUnlocked ? 17 : 0;
+          this.spawnBulletFrom(sx2, sy2, best.x, best.y, { speed: 820, lifeTiles: 9 + extra, spread: 0.06, isMinigun: true, noBlockDamage: true });
+          try { window.playSfx?.('shoot'); } catch(e){}
         }
       });
     }
@@ -1433,8 +1615,9 @@ class GameScene extends Phaser.Scene {
     if (portal) {
       this.onEnterPortal(ptx, pty, portal.color || 'blue');
     }
-  // Run slime cloner spawners
+  // Run cloner spawners
   this.maybeRunSlimeCloners();
+  this.maybeRunSoldierCloners();
   }
 
   // --- Ninja Mode ---
@@ -1863,6 +2046,110 @@ class GameScene extends Phaser.Scene {
   this.removeSlimeClonerAt(tx, ty);
   this.saveState();
   this.showToast('Limaklooni poistettu');
+  }
+
+  // --- Sniper Tower (Ampumatorni) ---
+  placeTower(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    if (this.towers.has(key)) { this.showToast('Torni jo tässä'); return; }
+    // Validate: 3-tile column must be free and solid ground under base
+    for (let oy=0; oy<3; oy++) if (this.hasSolidBlockAt(tx, ty-oy)) { this.showToast('Paikka varattu'); return; }
+    if (!this.hasSolidBlockAt(tx, ty+1)) { this.showToast('Tarvitsee alustan'); return; }
+    // Prevent overlapping player
+    const x = tx*TILE + TILE/2, yBase = ty*TILE + TILE/2;
+    const rects = [
+      new Phaser.Geom.Rectangle(x - TILE/2, yBase - TILE/2, TILE, TILE),
+      new Phaser.Geom.Rectangle(x - TILE/2, yBase - TILE*3/2, TILE, TILE),
+      new Phaser.Geom.Rectangle(x - TILE/2, yBase - TILE*5/2, TILE, TILE)
+    ];
+    const pb = new Phaser.Geom.Rectangle(this.player.body.x, this.player.body.y, this.player.body.width, this.player.body.height);
+    if (rects.some(r=> Phaser.Geom.Intersects.RectangleToRectangle(r, pb))) { this.showToast('Liian lähellä'); return; }
+  // Build visuals: unified body (3 tiles tall) and rotating gun at top
+  const body = this.add.image(x, yBase + TILE/2, 'tex_tower_body').setDepth(4);
+  body.setOrigin(0.5, 1.0); // body bottom aligns to base tile top
+  const head = this.add.image(x, yBase - TILE*2, 'tex_tower_gun').setDepth(5);
+  head.setOrigin(0.4, 0.5);
+  // Visible soldier on the platform (slightly behind the gun)
+  const soldier = this.add.image(x, yBase - TILE*2 - 2, 'tex_soldier').setDepth(5).setOrigin(0.5, 1.0);
+    // Invisible zone to detect bullet hits if we later want destructibility (for now, removal by player)
+    const zone = this.add.zone(x, yBase - TILE, TILE, TILE*3);
+    this.physics.world.enable(zone, Phaser.Physics.Arcade.STATIC_BODY);
+    zone.setData('type','tower'); zone.setData('tx',tx); zone.setData('ty',ty);
+    // Track in chunk decor
+  if (this.currentChunk!=null) { const ch = this.chunks.get(this.currentChunk); ch?.decor.push(body); ch?.decor.push(head); ch?.decor.push(soldier); ch?.decor.push(zone); }
+  this.towers.set(key, { body, head, soldier, zone, nextAt: 0 });
+    this.towerPositions.push({ tx, ty });
+    this.saveState();
+  }
+  // --- Soldier Cloner (Sotilasklooni) ---
+  placeSoldierCloner(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    if (this.blocks.get(key)) { this.showToast('Paikka varattu'); return; }
+    if (!this.hasSolidBlockAt(tx, ty+1)) { this.showToast('Tarvitset lattian alle'); return; }
+    if (this.soldierCloners.has(key)) { this.showToast('Laite jo tässä'); return; }
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    const img = this.add.image(x,y,'tex_soldiercloner').setDepth(4);
+    const zone = this.add.zone(x, y, TILE*0.9, TILE*0.9);
+    this.physics.world.enable(zone, Phaser.Physics.Arcade.STATIC_BODY);
+    zone.setData('type','soldiercloner'); zone.setData('tx',tx); zone.setData('ty',ty);
+    if (this.currentChunk!=null) { this.chunks.get(this.currentChunk)?.decor.push(img); this.chunks.get(this.currentChunk)?.decor.push(zone); }
+    this.soldierCloners.set(key, { image: img, zone, nextAt: this.time.now + 2500, count: 0 });
+    this.soldierClonerPositions.push({ tx, ty });
+    this.saveState();
+  }
+  removeSoldierClonerAtPointer(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    const e = this.soldierCloners.get(key);
+    if (!e) { this.showToast('Ei laitetta'); return; }
+    e.image?.destroy(); e.zone?.destroy?.();
+    this.soldierCloners.delete(key);
+    this.soldierClonerPositions = this.soldierClonerPositions.filter(p=> !(p.tx===tx && p.ty===ty));
+    this.saveState();
+  }
+
+  maybeRunSoldierCloners(){
+    if (!this.soldierClonerPositions?.length) return;
+    const CAP_PER = 3; // per device
+    for (const pos of this.soldierClonerPositions){
+      const key = `${pos.tx},${pos.ty}`;
+      let e = this.soldierCloners.get(key);
+      if (!e || !e.image || !e.image.active) continue;
+      if (!e.nextAt) e.nextAt = this.time.now + 2500;
+      if (this.time.now < e.nextAt) continue;
+      if (e.count >= CAP_PER) continue;
+      e.nextAt = this.time.now + Phaser.Math.Between(4000, 7000);
+      // spawn soldier one tile above
+      const tx = pos.tx, ty = pos.ty - 1;
+      if (this.hasSolidBlockAt(tx, ty)) continue;
+      const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+  const s = this.physics.add.image(x, y, 'tex_soldier').setDepth(5);
+  s.setData('type','ally'); s.setData('weapon','ak47'); s.setData('nextAt', 0);
+  // Enable gravity so they land on platforms; set body size similar to player
+  s.body.allowGravity = true;
+  s.setCollideWorldBounds(true);
+  if (s.body?.setSize) s.body.setSize(20, 34).setOffset(4, 2);
+      s._ai = { nextAt: 0 };
+      this.soldiers.add(s);
+      e.count++;
+      s.on('destroy', ()=>{ e.count = Math.max(0, e.count-1); });
+    }
+  }
+  removeTowerAtPointer(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    const t = this.towers.get(key);
+    if (!t) { this.showToast('Ei tornia'); return; }
+   t.body?.destroy(); t.head?.destroy(); t.soldier?.destroy(); t.zone?.destroy?.(); t._gfx?.destroy?.();
+    this.towers.delete(key);
+    this.towerPositions = this.towerPositions.filter(p=> !(p.tx===tx && p.ty===ty));
+    this.saveState();
   }
 
   removeSlimeClonerAt(tx, ty){
@@ -3136,7 +3423,7 @@ class GameScene extends Phaser.Scene {
     slots[3].textContent = `Kolikot: ${this.state.coins}`;
     slots[4].textContent = this.state.canFly ? 'Lento ✓' : '';
     // Show equipped tool
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin',
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', tower:'Ampumatorni',
     pistol_copper:'Pistooli (Kupari)', bow_copper:'Jousipyssy (Kupari)', minigun_copper:'Minigun (Kupari)', ak47_copper:'AK-47 (Kupari)', knife_copper:'Puukko (Kupari)', sniper_copper:'Tarkka-ase (Kupari)', bazooka_copper:'Bazooka (Kupari)', grenade_copper:'Kranaatti (Kupari)', nuke_copper:'Ydinase (Kupari)', pamppu_copper:'Pamppu (Kupari)', plane_copper:'Lentokone (Kupari)'
   };
   const eq = this.tools.equipped;
@@ -3189,7 +3476,7 @@ class GameScene extends Phaser.Scene {
     const select = document.getElementById('toolSelect');
     if (!select) return;
     select.innerHTML = '';
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin',
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', tower:'Ampumatorni',
     pistol_copper:'Pistooli (Kupari)', bow_copper:'Jousipyssy (Kupari)', minigun_copper:'Minigun (Kupari)', ak47_copper:'AK-47 (Kupari)', knife_copper:'Puukko (Kupari)', sniper_copper:'Tarkka-ase (Kupari)', bazooka_copper:'Bazooka (Kupari)', grenade_copper:'Kranaatti (Kupari)', nuke_copper:'Ydinase (Kupari)', pamppu_copper:'Pamppu (Kupari)', plane_copper:'Lentokone (Kupari)'
   };
     for (const tool in this.tools.owned) {
@@ -3341,6 +3628,40 @@ class GameScene extends Phaser.Scene {
         const cx = Math.floor(p.tx / CHUNK_W);
         this.chunks.get(cx)?.decor.push(img);
         this.rods.set(key, { image: img, hp: (typeof p.hp === 'number' ? p.hp : 3) });
+      }
+    }
+    // Re-spawn saved sniper towers
+    if (Array.isArray(this.towerPositions)) {
+      for (const p of this.towerPositions) {
+        const key = `${p.tx},${p.ty}`;
+        const x = p.tx*TILE + TILE/2;
+        const yBase = p.ty*TILE + TILE/2;
+  const body = this.add.image(x, yBase + TILE/2, 'tex_tower_body').setDepth(4).setOrigin(0.5, 1.0);
+  const head = this.add.image(x, yBase - TILE*2, 'tex_tower_gun').setDepth(5).setOrigin(0.4, 0.5);
+  const soldier = this.add.image(x, yBase - TILE*2 - 2, 'tex_soldier').setDepth(5).setOrigin(0.5, 1.0);
+        const zone = this.add.zone(x, yBase - TILE, TILE, TILE*3);
+        this.physics.world.enable(zone, Phaser.Physics.Arcade.STATIC_BODY);
+        zone.setData('type','tower'); zone.setData('tx',p.tx); zone.setData('ty',p.ty);
+        const cx = Math.floor(p.tx / CHUNK_W);
+  this.chunks.get(cx)?.decor.push(body);
+        this.chunks.get(cx)?.decor.push(head);
+        this.chunks.get(cx)?.decor.push(soldier);
+        this.chunks.get(cx)?.decor.push(zone);
+        this.towers.set(key, { body, head, soldier, zone, nextAt: 0 });
+      }
+    }
+    // Re-spawn saved soldier cloners
+    if (Array.isArray(this.soldierClonerPositions)) {
+      for (const p of this.soldierClonerPositions) {
+        const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+        const img = this.add.image(x,y,'tex_soldiercloner').setDepth(4);
+        const zone = this.add.zone(x, y, TILE*0.9, TILE*0.9);
+        this.physics.world.enable(zone, Phaser.Physics.Arcade.STATIC_BODY);
+        zone.setData('type','soldiercloner'); zone.setData('tx',p.tx); zone.setData('ty',p.ty);
+        const cx = Math.floor(p.tx / CHUNK_W);
+        this.chunks.get(cx)?.decor.push(img);
+        this.chunks.get(cx)?.decor.push(zone);
+        this.soldierCloners.set(`${p.tx},${p.ty}`, { image: img, zone, nextAt: this.time.now + 2500, count: 0 });
       }
     }
   }
@@ -3528,12 +3849,26 @@ class GameScene extends Phaser.Scene {
     const sc = this.slimeCloners.get(k);
     if (sc && sc.image === d) { sc.image = null; }
     if (sc && sc.zone === d) { sc.zone = null; }
+    // if this decor belonged to a soldier cloner, clear its handles
+    const sc2 = this.soldierCloners?.get?.(k);
+    if (sc2 && sc2.image === d) { sc2.image = null; }
+    if (sc2 && sc2.zone === d) { sc2.zone = null; }
   // if this decor was a torch, clear handle
   const tt = this.torches.get(k);
   if (tt && tt.image === d) { tt.image = null; }
   // if this decor was a lightning rod, clear handle
   const rr = this.rods.get(k);
   if (rr && rr.image === d) { rr.image = null; }
+  // if this decor belonged to any tower, clear its handles
+  if (this.towers?.size) {
+    for (const [tkey, tw] of this.towers) {
+      if (!tw) continue;
+      if (tw.body === d) tw.body = null;
+      if (tw.head === d) tw.head = null;
+      if (tw.soldier === d) tw.soldier = null;
+      if (tw.zone === d) tw.zone = null;
+    }
+  }
       d.destroy();
     }
     // Pickups
@@ -3616,6 +3951,26 @@ class GameScene extends Phaser.Scene {
         }
       }
     }
+    // Soldier cloners in this chunk
+    if (Array.isArray(this.soldierClonerPositions)) {
+      const startTx = cx*CHUNK_W, endTx = startTx+CHUNK_W-1;
+      for (const p of this.soldierClonerPositions) {
+        if (p.tx>=startTx && p.tx<=endTx) {
+          const key = `${p.tx},${p.ty}`;
+          const existing = this.soldierCloners.get(key);
+          if (existing?.image && existing.image.active) continue;
+          const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+          const img = this.add.image(x,y,'tex_soldiercloner').setDepth(4);
+          const zone = this.add.zone(x, y, TILE*0.9, TILE*0.9);
+          this.physics.world.enable(zone, Phaser.Physics.Arcade.STATIC_BODY);
+          zone.setData('type','soldiercloner'); zone.setData('tx',p.tx); zone.setData('ty',p.ty);
+          this.chunks.get(cx)?.decor.push(img);
+          this.chunks.get(cx)?.decor.push(zone);
+          if (existing) { existing.image = img; existing.zone = zone; }
+          else this.soldierCloners.set(key, { image: img, zone, nextAt: this.time.now + 2500, count: 0 });
+        }
+      }
+    }
 
     // Torches in this chunk
     if (Array.isArray(this.torchPositions)) {
@@ -3650,6 +4005,30 @@ class GameScene extends Phaser.Scene {
           this.chunks.get(cx)?.decor.push(img);
           if (existing) { existing.image = img; if (typeof p.hp === 'number') existing.hp = p.hp; }
           else this.rods.set(key, { image: img, hp: (typeof p.hp === 'number' ? p.hp : 3) });
+        }
+      }
+    }
+    // Sniper towers in this chunk
+    if (Array.isArray(this.towerPositions)) {
+      for (const p of this.towerPositions) {
+        if (p.tx>=startTx && p.tx<=endTx) {
+          const key = `${p.tx},${p.ty}`;
+          const existing = this.towers.get(key);
+          if (existing && existing.head && existing.head.active) continue;
+          const x = p.tx*TILE + TILE/2;
+          const yBase = p.ty*TILE + TILE/2;
+          const body = this.add.image(x, yBase + TILE/2, 'tex_tower_body').setDepth(4).setOrigin(0.5, 1.0);
+          const head = this.add.image(x, yBase - TILE*2, 'tex_tower_gun').setDepth(5).setOrigin(0.4, 0.5);
+          const soldier = this.add.image(x, yBase - TILE*2 - 2, 'tex_soldier').setDepth(5).setOrigin(0.5, 1.0);
+          const zone = this.add.zone(x, yBase - TILE, TILE, TILE*3);
+          this.physics.world.enable(zone, Phaser.Physics.Arcade.STATIC_BODY);
+          zone.setData('type','tower'); zone.setData('tx',p.tx); zone.setData('ty',p.ty);
+          this.chunks.get(cx)?.decor.push(body);
+          this.chunks.get(cx)?.decor.push(head);
+          this.chunks.get(cx)?.decor.push(soldier);
+          this.chunks.get(cx)?.decor.push(zone);
+          if (existing) { existing.body = body; existing.head = head; existing.soldier = soldier; existing.zone = zone; }
+          else this.towers.set(key, { body, head, soldier, zone, nextAt: 0 });
         }
       }
     }
@@ -3921,7 +4300,7 @@ class GameScene extends Phaser.Scene {
   }
 
   saveState(){
-  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, bounceShoes: this.state.bounceShoes, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, torches: this.torchPositions, mines: this.minePositions, rods: this.rodPositions, weather: this.weather, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic', upgrades: this.upgrades };
+  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, bounceShoes: this.state.bounceShoes, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, soldierCloners: this.soldierClonerPositions, torches: this.torchPositions, mines: this.minePositions, rods: this.rodPositions, towers: this.towerPositions, weather: this.weather, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic', upgrades: this.upgrades };
     try {
       const wid = window.localStorage.getItem('UAG_worldCurrent') || 'world-1';
       localStorage.setItem(`UAG_save_${wid}`, JSON.stringify(data));
@@ -3968,9 +4347,11 @@ class GameScene extends Phaser.Scene {
   if (Array.isArray(d.cannons)) this.cannonPositions = d.cannons.slice(0, 2000);
   if (Array.isArray(d.portals)) this.portalPositions = d.portals.slice(0, 5000);
   if (Array.isArray(d.slimeCloners)) this.slimeClonerPositions = d.slimeCloners.slice(0, 1000);
+  if (Array.isArray(d.soldierCloners)) this.soldierClonerPositions = d.soldierCloners.slice(0, 1000);
   if (Array.isArray(d.torches)) this.torchPositions = d.torches.slice(0, 3000);
   if (Array.isArray(d.mines)) this.minePositions = d.mines.slice(0, 3000);
   if (Array.isArray(d.rods)) this.rodPositions = d.rods.slice(0, 2000);
+  if (Array.isArray(d.towers)) this.towerPositions = d.towers.slice(0, 2000);
   if (d.weather) { this.weather.isStorm = !!d.weather.isStorm; this.weather.nextLightningAt = d.weather.nextLightningAt||0; this.weather.nextStormCheckAt = d.weather.nextStormCheckAt||0; this.weather.stormEndsAt = d.weather.stormEndsAt||0; }
   // Migration: convert legacy doors to portals (closed doors -> blue portals at same tile)
   if (Array.isArray(d.doors)) {
@@ -3994,6 +4375,7 @@ class GameScene extends Phaser.Scene {
   if (!this.tools.owned?.plane) this.tools.owned.plane = true;
   if (!this.tools.owned?.cloner) this.tools.owned.cloner = true;
   if (!this.tools.owned?.slimecloner) this.tools.owned.slimecloner = true;
+  if (!this.tools.owned?.soldiercloner) this.tools.owned.soldiercloner = true;
   if (!this.tools.owned?.torch) this.tools.owned.torch = true;
   // Ensure new tools exist for older saves
   if (!this.tools.owned?.wizard) this.tools.owned.wizard = true;
@@ -4003,6 +4385,7 @@ class GameScene extends Phaser.Scene {
   if (!this.tools.owned?.bow) this.tools.owned.bow = true;
   if (!this.tools.owned?.mine) this.tools.owned.mine = true;
   if (!this.tools.owned?.rod) this.tools.owned.rod = true;
+  if (!this.tools.owned?.tower) this.tools.owned.tower = true;
   // Tool migration: rename door -> teleport
   if (this.tools.owned?.door) { delete this.tools.owned.door; this.tools.owned.teleport = true; }
   if (!this.tools.owned?.teleport) this.tools.owned.teleport = true;
@@ -4127,7 +4510,7 @@ class GameScene extends Phaser.Scene {
     'nuke','nuke_copper',
     'wizard','flame',
     'pamppu','pamppu_copper',
-    'mine','rod',
+  'mine','rod','tower','soldiercloner',
     'plane','plane_copper',
     'hook','cloner','teleport','slimecloner','torch'];
   if (!this.tools.owned?.hook) this.tools.owned.hook = true;
@@ -4143,6 +4526,8 @@ class GameScene extends Phaser.Scene {
   if (this.tools.equipped === 'mine') this.showToast('Miina: oikea asettaa, vasen poistaa. Räjähtää vihollisen koskiessa.');
   if (this.tools.equipped === 'rod') this.showToast('Ukonjohdatin: oikea asettaa, vasen poistaa. Suojaa salamilta lähellä. Kestää 3 osumaa.');
   if (/_copper$/.test(this.tools.equipped)) this.showToast('Kupari-ase: enemmän damagea ja +17 kantamaa');
+  if (this.tools.equipped === 'tower') this.showToast('Ampumatorni: oikea asetus, vasen poisto (3 blokkia korkea)');
+  if (this.tools.equipped === 'soldiercloner') this.showToast('Sotilasklooni: oikea aseta laite, vasen poista. Tekee AK-47 -sotilaita limoja ja zombeja vastaan.');
   }
 
   // Small deterministic RNG for reproducible world
