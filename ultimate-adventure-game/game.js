@@ -55,7 +55,7 @@ class GameScene extends Phaser.Scene {
 
     // Tool system
     this.tools = {
-    owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, bow: true, cannon: true, minigun: true, ak47: true, knife: true, sniper: true, bazooka: true, grenade: true, nuke: true, plane: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true, wizard: true, flame: true, pamppu: true, mine: true, rod: true, tower: true,
+  owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, bow: true, cannon: true, minigun: true, ak47: true, knife: true, sniper: true, rifle: true, bazooka: true, grenade: true, nuke: true, plane: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true, wizard: true, flame: true, pamppu: true, mine: true, rod: true, tower: true,
            pistol_copper: false, bow_copper: false, minigun_copper: false, ak47_copper: false, knife_copper: false, sniper_copper: false, bazooka_copper: false, grenade_copper: false, nuke_copper: false, pamppu_copper: false, plane_copper: false },
       equipped: 'pistol',
       cannonMode: 'minigun' // 'minigun' | 'sniper'
@@ -158,6 +158,21 @@ class GameScene extends Phaser.Scene {
   this.soldierClonerPositions = []; // persisted [{tx,ty}]
   this.soldierCloners = new Map(); // key -> { image?, zone?, nextAt, count }
   this.soldiers = null; // physics group, set up in create()
+
+  // Build minipeli state
+  this.buildMiniGame = {
+    active:false,
+    timeLeft:0,
+    palette:[],
+    selectedBlock:null,
+    originTileX:0,
+    originTileY:0,
+    placed:new Map(), // key "dx,dy" -> type
+    container:null, // Phaser container for preview blocks
+    blueprint:null, // {blocks:[{dx,dy,type}], w,h}
+    awaitingPlacement:false
+  };
+  this.wolves = null; // wolf enemy group
   
   }
 
@@ -293,6 +308,39 @@ class GameScene extends Phaser.Scene {
   g.lineStyle(2, 0x1a2f1a, 1); g.strokeRect(4, 12, solW-8, 14);
   g.generateTexture('tex_soldier', solW, solH); g.clear();
 
+  // Jetpack soldier sprite (adds a backpack and nozzle details)
+  // base body
+  g.fillStyle(0x2b4d2b,1); g.fillRect(4, 12, solW-8, 14);
+  g.fillStyle(0x1e361e,1); g.fillRect(6, 26, solW-12, 8);
+  g.fillStyle(0xffdd66,1); g.fillRect(8, 6, solW-16, 8);
+  g.fillStyle(0x223d22,1); g.fillRect(6, 4, solW-12, 6);
+  g.fillStyle(0x000000,1); g.fillRect(12, 9, 2, 2); g.fillRect(solW-14, 9, 2, 2);
+  // backpack
+  g.fillStyle(0x666b75,1); g.fillRoundedRect(3, 12, 8, 14, 3);
+  // nozzle caps
+  g.fillStyle(0x44474f,1); g.fillRect(4, 26, 2, 4); g.fillRect(8, 26, 2, 4);
+  // straps
+  g.fillStyle(0x4a4f58,1); g.fillRect(10, 12, 2, 14);
+  g.lineStyle(2, 0x1a2f1a, 1); g.strokeRect(4, 12, solW-8, 14);
+  g.generateTexture('tex_soldier_jetpack', solW, solH); g.clear();
+
+  // Enemy soldier (sniper) — darker uniform with red band
+  g.fillStyle(0x2b2f38,1); g.fillRect(4, 12, solW-8, 14);
+  g.fillStyle(0x1b1f27,1); g.fillRect(6, 26, solW-12, 8);
+  g.fillStyle(0xffcc66,1); g.fillRect(8, 6, solW-16, 8);
+  g.fillStyle(0x1e2730,1); g.fillRect(6, 4, solW-12, 6);
+  // red band/arm patch
+  g.fillStyle(0xcc3333,1); g.fillRect(solW-10, 16, 8, 3);
+  g.fillStyle(0x000000,1); g.fillRect(12, 9, 2, 2); g.fillRect(solW-14, 9, 2, 2);
+  g.lineStyle(2, 0x0f141a, 1); g.strokeRect(4, 12, solW-8, 14);
+  g.generateTexture('tex_enemy_soldier', solW, solH); g.clear();
+
+  // Throwing knife projectile texture
+  const kw=16, kh=6; g.fillStyle(0xbfc5ce,1); g.fillRoundedRect(0,1,kw,kh-2,2);
+  g.fillStyle(0x88909a,1); g.fillRect(kw-4, 0, 4, kh); // tip shade
+  g.lineStyle(2,0x6a7280,1); g.strokeRoundedRect(0,1,kw,kh-2,2);
+  g.generateTexture('tex_throwing_knife', kw, kh); g.clear();
+
     // Bird texture
     const bw=36,bh=20,mid=8; g.fillStyle(0x222222,1); g.beginPath(); g.moveTo(0,bh); g.lineTo(bw,bh-mid); g.lineTo(bw*0.35,0); g.closePath(); g.fillPath(); g.lineStyle(2,0x000000,1); g.strokePath(); g.generateTexture('tex_bird',bw,bh); g.clear();
 
@@ -346,45 +394,102 @@ class GameScene extends Phaser.Scene {
     g.fillStyle(0x4a90e2, 0.8); g.fillRect(0,0,TILE,TILE); g.lineStyle(2,0x2e5c8a,1); g.strokeRect(0,0,TILE,TILE);
     g.generateTexture('tex_water',TILE,TILE); g.clear();
 
-    // Bullet texture
-    g.fillStyle(0x333333,1); g.fillRect(0,0,8,4); g.lineStyle(1,0x000000,1); g.strokeRect(0,0,8,4);
-  g.generateTexture('tex_bullet',8,4); g.clear();
-    // Simple weapon sprites (held in hand)
-    // Pistol
-    g.fillStyle(0x444444,1); g.fillRect(0,2,10,4); g.fillRect(2,0,3,2); g.lineStyle(1,0x222222,1); g.strokeRect(0,2,10,4);
-    g.generateTexture('tex_weapon_pistol',12,8); g.clear();
-    // Minigun
-    g.fillStyle(0x555555,1); g.fillRect(0,1,16,6); g.fillStyle(0x777777,1); g.fillRect(10,0,6,2); g.fillRect(10,6,6,2);
-    g.lineStyle(1,0x333333,1); g.strokeRect(0,1,16,6);
-    g.generateTexture('tex_weapon_minigun',18,8); g.clear();
-  // AK-47 (simple wood+metal)
-  g.fillStyle(0x5f5f5f,1); g.fillRect(0,2,16,3); // barrel
-  g.fillStyle(0x8b5a2b,1); g.fillRect(5,4,6,3); // wooden handguard
-  g.fillStyle(0x5f5f5f,1); g.fillRect(14,1,4,6); // muzzle block
-  g.lineStyle(1,0x333333,1); g.strokeRect(0,2,16,3);
-  g.generateTexture('tex_weapon_ak47',20,8); g.clear();
-    // Sniper rifle
-    g.fillStyle(0x4a4a4a,1); g.fillRect(0,2,22,3); g.fillStyle(0x8b5a2b,1); g.fillRect(3,4,6,2); g.lineStyle(1,0x222222,1); g.strokeRect(0,2,22,3);
-    g.generateTexture('tex_weapon_sniper',24,8); g.clear();
-    // Bazooka launcher
-    g.fillStyle(0x2f2f2f,1); g.fillRect(0,1,20,6); g.fillStyle(0x6a6a6a,1); g.fillRect(2,0,4,2); g.fillRect(2,7,4,2);
-    g.lineStyle(1,0x111111,1); g.strokeRect(0,1,20,6);
-    g.generateTexture('tex_weapon_bazooka',22,10); g.clear();
-    // Knife
-    g.fillStyle(0xbfbfbf,1); g.fillRect(0,2,10,2); g.fillStyle(0x8b5a2b,1); g.fillRect(10,1,3,4); g.lineStyle(1,0x777777,1); g.strokeRect(0,2,10,2);
-    g.generateTexture('tex_weapon_knife',14,8); g.clear();
-  // Baton (Pamppu)
-  g.fillStyle(0x5a3a1b,1); g.fillRect(0,3,18,2); g.lineStyle(1,0x2e1d0e,1); g.strokeRect(0,3,18,2);
-  g.generateTexture('tex_weapon_baton',20,8); g.clear();
-  // Wand (wizard)
-  g.fillStyle(0x8b5a2b,1); g.fillRect(0,3,16,2); // stick
-  g.fillStyle(0xffdd66,1); g.fillCircle(16,4,3); // tip
-  g.lineStyle(1,0x5a3a1b,1); g.strokeRect(0,3,16,2);
-  g.generateTexture('tex_weapon_wand',20,8); g.clear();
-  // Flamethrower icon
-  g.fillStyle(0x444444,1); g.fillRect(0,2,14,4); g.fillStyle(0xcc6622,1); g.fillRect(14,1,4,6); g.fillStyle(0x666666,1); g.fillRect(4,6,8,2);
-  g.lineStyle(1,0x222222,1); g.strokeRect(0,2,14,4);
-  g.generateTexture('tex_weapon_flamer',20,10); g.clear();
+    // Bullet texture (with casing + tip highlight)
+    g.fillStyle(0xd4af37,1); g.fillRect(0,0,6,4); // brass casing
+    g.fillStyle(0x444444,1); g.fillRect(6,1,2,2); // projectile tip
+    g.lineStyle(1,0x8f7a25,1); g.strokeRect(0,0,6,4);
+    g.generateTexture('tex_bullet',8,4); g.clear();
+    // Realistic-ish weapon sprites (tiny pixel scale)
+    // Pistol: slide, grip, barrel port
+    g.fillStyle(0x2f2f2f,1); g.fillRect(0,1,9,4); // slide
+    g.fillStyle(0x444444,1); g.fillRect(1,2,7,2); // shade
+    g.fillStyle(0x1d1d1d,1); g.fillRect(5,0,2,1); // rear sight
+    g.fillStyle(0x3a2815,1); g.fillRect(2,4,3,3); // grip
+    g.lineStyle(1,0x111111,1); g.strokeRect(0,1,9,4);
+    g.generateTexture('tex_weapon_pistol',14,9); g.clear();
+    // Minigun: barrel cluster + body + rear handle
+    g.fillStyle(0x3a3a3a,1); g.fillRect(0,2,12,4); // body
+    g.fillStyle(0x5a5a5a,1); g.fillRect(1,1,10,2);
+    // rotating barrel cluster (front)
+    g.fillStyle(0x262626,1); g.fillRect(12,1,6,6);
+    g.fillStyle(0x6f6f6f,1); for (let i=0;i<3;i++){ g.fillRect(12,1+i*2,6,1); }
+    g.fillStyle(0x7a7a7a,1); g.fillRect(3,6,4,2); // under grip
+    g.lineStyle(1,0x181818,1); g.strokeRect(0,2,12,4);
+    g.generateTexture('tex_weapon_minigun',20,10); g.clear();
+    // AK-47: barrel, gas tube, wood stock & handguard, mag curve
+    g.fillStyle(0x2e2e2e,1); g.fillRect(0,3,16,2); // barrel
+    g.fillStyle(0x3a3a3a,1); g.fillRect(2,2,10,2); // receiver top
+    g.fillStyle(0x91552b,1); g.fillRect(3,4,6,3); // handguard
+    g.fillStyle(0x874c21,1); g.fillRect(11,2,4,5); // front block
+    g.fillStyle(0x91552b,1); g.fillRect(0,2,3,4); // stock base
+    g.fillStyle(0x6d3b16,1); g.fillRect(0,2,2,4); // darker edge
+    // magazine (slight curve)
+    g.fillStyle(0x3a3a3a,1); g.fillRect(6,5,4,4); g.fillRect(6,6,5,3);
+    g.lineStyle(1,0x1a1a1a,1); g.strokeRect(0,2,15,5);
+    g.generateTexture('tex_weapon_ak47',22,12); g.clear();
+    // Sniper rifle: long barrel, scope with highlights, stock
+    g.fillStyle(0x303030,1); g.fillRect(0,4,26,3); // barrel/receiver
+    g.fillStyle(0x925d2d,1); g.fillRect(2,7,8,3); // fore wood
+    g.fillStyle(0x925d2d,1); g.fillRect(0,4,3,6); // stock core
+    g.fillStyle(0x6e441c,1); g.fillRect(0,4,2,6); // stock shadow
+    // scope
+    g.fillStyle(0x242424,1); g.fillRect(6,2,10,3);
+    g.fillStyle(0x4a4a4a,1); g.fillRect(7,2,8,2);
+    g.fillStyle(0x99c8ff,1); g.fillRect(8,2,2,2); g.fillRect(11,2,2,2);
+    g.lineStyle(1,0x161616,1); g.strokeRect(0,4,26,3);
+    g.generateTexture('tex_weapon_sniper',28,12); g.clear();
+  // Rifle (kivääri) mid-length iron sights (no scope)
+  g.fillStyle(0x333333,1); g.fillRect(0,4,20,3); // barrel
+  g.fillStyle(0x91552b,1); g.fillRect(1,5,6,3); // handguard wood
+  g.fillStyle(0x6d3b16,1); g.fillRect(1,5,2,3); // darker edge
+  g.fillStyle(0x91552b,1); g.fillRect(0,4,4,5); // stock
+  g.fillStyle(0x6d3b16,1); g.fillRect(0,4,2,5);
+  g.fillStyle(0x2b2b2b,1); g.fillRect(7,3,3,2); // rear sight block
+  g.fillStyle(0x2b2b2b,1); g.fillRect(16,3,2,2); // front sight
+  g.lineStyle(1,0x181818,1); g.strokeRect(0,4,20,3);
+  g.generateTexture('tex_weapon_rifle',22,12); g.clear();
+    // Bazooka: tube, rear sight, front ring, warhead tip color
+    g.fillStyle(0x2a2f2a,1); g.fillRect(0,3,24,4); // tube
+    g.fillStyle(0x3c443c,1); g.fillRect(2,2,20,2);
+    g.fillStyle(0x556155,1); g.fillRect(2,7,8,2); // shoulder pad
+    g.fillStyle(0x444444,1); g.fillRect(20,2,4,6); // nose block
+    g.fillStyle(0x88cc44,1); g.fillRect(22,3,2,4); // warhead tip
+    g.lineStyle(1,0x161a16,1); g.strokeRect(0,3,24,4);
+    g.generateTexture('tex_weapon_bazooka',26,12); g.clear();
+    // Knife: blade gradient + handle rivets
+    g.fillStyle(0xcfd2d4,1); g.fillRect(0,3,12,3);
+    g.fillStyle(0xe8ecee,1); g.fillRect(1,3,10,2);
+    g.fillStyle(0x8b5a2b,1); g.fillRect(12,2,4,5); // handle
+    g.fillStyle(0x5c3a15,1); g.fillRect(12,2,1,5);
+    g.fillStyle(0xffffff,1); g.fillRect(13,3,1,1); g.fillRect(14,4,1,1); // rivets
+    g.lineStyle(1,0x777777,1); g.strokeRect(0,3,12,3);
+    g.generateTexture('tex_weapon_knife',18,10); g.clear();
+    // Baton (Pamppu): cylindrical shading
+    g.fillStyle(0x4f3420,1); g.fillRect(0,4,18,3);
+    g.fillStyle(0x6d462a,1); g.fillRect(1,4,16,2);
+    g.fillStyle(0x2d1d10,1); g.fillRect(0,4,2,3); // shadow end
+    g.generateTexture('tex_weapon_baton',22,12); g.clear();
+    // Wand (wizard): gem + stick shading
+    g.fillStyle(0x7a4d22,1); g.fillRect(0,4,18,2);
+    g.fillStyle(0xa56a33,1); g.fillRect(1,4,16,1);
+    g.fillStyle(0xffdd66,1); g.fillCircle(18,5,3);
+    g.fillStyle(0xfff6aa,1); g.fillCircle(17,4,1.5);
+    g.generateTexture('tex_weapon_wand',22,12); g.clear();
+    // Flamethrower: tank + nozzle + hose highlight
+    g.fillStyle(0x2e2e2e,1); g.fillRect(0,3,16,5); // body
+    g.fillStyle(0x444444,1); g.fillRect(1,3,14,3);
+    g.fillStyle(0xcc6622,1); g.fillRect(16,2,5,7); // fuel block
+    g.fillStyle(0x666666,1); g.fillRect(5,8,7,2); // grip
+    g.fillStyle(0xffaa55,1); g.fillRect(18,3,2,3); // pilot
+    g.lineStyle(1,0x181818,1); g.strokeRect(0,3,16,5);
+    g.generateTexture('tex_weapon_flamer',24,12); g.clear();
+
+  // Wolf texture
+  g.fillStyle(0x6d6d6d,1); g.fillRect(0,6,28,10); // body
+  g.fillStyle(0x7a7a7a,1); g.fillRect(18,2,10,8); // head
+  g.fillStyle(0x222222,1); g.fillRect(23,5,2,2); // eye
+  g.fillStyle(0x555555,1); for(let i=0;i<4;i++){ g.fillRect(4+i*5,16,4,4);} // legs
+  g.generateTexture('tex_wolf',30,20); g.clear();
   // Flame particle
   g.fillStyle(0xff9933,0.9); g.fillCircle(4,4,4); g.fillStyle(0xffcc66,0.8); g.fillCircle(3,3,2.4);
   g.generateTexture('tex_flame',8,8); g.clear();
@@ -392,6 +497,12 @@ class GameScene extends Phaser.Scene {
   g.fillStyle(0xff2a2a,1); g.fillRect(0,0,14,3); g.generateTexture('tex_laser',14,3); g.clear();
   // Web pellet (web mode)
   g.fillStyle(0xffffff,1); g.fillCircle(3,3,3); g.generateTexture('tex_web',6,6); g.clear();
+  // Ally drone texture
+  const dw=22, dh=14; g.fillStyle(0x3b3f48,1); g.fillRoundedRect(2,4,dw-4,dh-6,4);
+  g.fillStyle(0x99c8ff,1); g.fillRect(6,6,10,4); // visor
+  g.fillStyle(0x5a616d,1); g.fillRect(3,2,6,2); g.fillRect(dw-9,2,6,2); // rotors
+  g.lineStyle(2,0x262a30,1); g.strokeRoundedRect(2,4,dw-4,dh-6,4);
+  g.generateTexture('tex_drone', dw, dh); g.clear();
   // Arrow projectile
   g.fillStyle(0x8b5a2b,1); g.fillRect(0,3,10,2); // shaft
   g.fillStyle(0xffffff,1); g.fillRect(10,2,2,4); // tip
@@ -416,7 +527,6 @@ class GameScene extends Phaser.Scene {
   g.generateTexture('tex_rocket',12,4); g.clear();
 
   // (Hemuli removed)
-
   // Oppo (jumper) texture
   g.fillStyle(0x884488,1); g.fillRoundedRect(2,6,24,18,6); // body
   g.fillStyle(0xffffff,1); g.fillCircle(10,12,2); g.fillCircle(18,12,2); // eyes
@@ -542,6 +652,10 @@ class GameScene extends Phaser.Scene {
   this.bosses = this.physics.add.group();
   this.bullets = this.physics.add.group({ allowGravity: false });
   this.soldiers = this.physics.add.group();
+  this.enemySoldiers = this.physics.add.group();
+  this.drones = this.physics.add.group({ allowGravity: false });
+  this.wolves = this.physics.add.group();
+  this.physics.add.collider(this.wolves, this.platforms);
   // Enemy: Oppo group (ground jumper)
   this.oppos = this.physics.add.group();
   this.portalsGroup = this.physics.add.staticGroup();
@@ -580,14 +694,23 @@ class GameScene extends Phaser.Scene {
   this.physics.add.overlap(this.player, this.birds, this.onBirdHit, null, this);
     this.physics.add.overlap(this.player, this.slimes, this.onSlimeHit, null, this);
   this.physics.add.overlap(this.player, this.zombies, (p,z)=>{ this._hitByEnemy(z); }, null, this);
+  this.physics.add.overlap(this.player, this.enemySoldiers, (p,e)=>{ this._hitByEnemy(e); }, null, this);
   // Allies collide with terrain
   this.physics.add.collider(this.soldiers, this.platforms);
+  this.physics.add.collider(this.enemySoldiers, this.platforms);
   
   this.physics.add.overlap(this.player, this.bosses, (p,b)=>{ this._hitByEnemy(b); }, null, this);
   // Oppo contact: lethal on touch if it has bounce shoes
   this.physics.add.overlap(this.player, this.oppos, (p,o)=>{
     if (o?.getData && o.getData('bounceShoes')) { this.damage(999); }
     else { this._hitByEnemy(o); }
+  }, null, this);
+  // Enemy bullets hurt player
+  this.physics.add.overlap(this.player, this.bullets, (p,b)=>{
+    if (!b?.getData || !b.getData('fromEnemy')) return;
+    if (b.getData('isRocket')) { this.explodeAt(b.x, b.y); b.destroy(); return; }
+    if (b.getData('isKnife')) { this.damage(999); b.destroy(); return; }
+    this._hitByEnemy({ x:b.x, y:b.y }); b.destroy();
   }, null, this);
   
   // Player bullets vs Oppo
@@ -600,6 +723,12 @@ class GameScene extends Phaser.Scene {
   if (Math.random() < 0.22 && !this.state.bounceShoes) this.spawnPickup(x, y, 'tex_boots');
       }
       bullet.destroy();
+    }, null, this);
+  // Player bullets vs enemy soldiers
+  this.physics.add.overlap(this.bullets, this.enemySoldiers, (bullet, enemy)=>{
+      if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); bullet.destroy(); return; }
+      if (bullet?.getData && bullet.getData('fromEnemy')) return; // ignore friendly fire rules for enemy bullets
+      const x=enemy.x,y=enemy.y; enemy.destroy(); this.dropCoins(x,y,3+Math.floor(Math.random()*2)); bullet.destroy();
     }, null, this);
   this.physics.add.overlap(this.bullets, this.birds, (bullet, bird)=>{
       if (bullet?.getData && bullet.getData('isRocket')) { this.explodeAt(bullet.x, bullet.y); bullet.destroy(); return; }
@@ -672,6 +801,13 @@ class GameScene extends Phaser.Scene {
       }
       const isTouch = pointer.pointerType === 'touch';
       if (!isTouch && pointer.rightButtonDown()) {
+        // Blueprint placement after minigame
+        if (this.buildMiniGame.awaitingPlacement && this.buildMiniGame.blueprint) {
+          const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+          const tx = Math.floor(wp.x / TILE), ty = Math.floor(wp.y / TILE);
+          this.placeBlueprintAtTiles(tx,ty);
+          return;
+        }
         if (this.tools.equipped === 'cannon') this.placeCannon(pointer);
         else if (this.tools.equipped === 'teleport') this.placePortal(pointer);
         else if (this.tools.equipped === 'slimecloner') this.placeSlimeCloner(pointer);
@@ -696,6 +832,23 @@ class GameScene extends Phaser.Scene {
           else this.placePlank(pointer);
         }
         else {
+          // Build minigame: left click toggles block inside virtual area
+          if (this.buildMiniGame.active) {
+            const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+            const tx = Math.floor(wp.x / TILE), ty = Math.floor(wp.y / TILE);
+            const dx = tx - this.buildMiniGame.originTileX; const dy = ty - this.buildMiniGame.originTileY;
+            const key = `${dx},${dy}`;
+            if (this.buildMiniGame.placed.has(key)) {
+              this.buildMiniGame.placed.delete(key);
+              const worldKey = `${tx},${ty}`;
+              if (this.blocks.has(worldKey)) this.removeBlockAt(tx,ty);
+            } else {
+              const type = this.buildMiniGame.selectedBlock;
+              this.buildMiniGame.placed.set(key,type);
+              if (!this.hasSolidBlockAt(tx,ty)) this.placeBlock(tx,ty,type);
+            }
+            return;
+          }
           // Wizard: start hold detection, action will be decided on pointerup
           if (this.tools.equipped === 'wizard') { this._wizardDownAt = this.time.now; return; }
           // Flamethrower: start continuous stream
@@ -758,6 +911,7 @@ class GameScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-SIX', guard(()=> this.tryEquipTool('minigun')));
     this.input.keyboard.on('keydown-SEVEN', guard(()=> this.tryEquipTool('knife')));
     this.input.keyboard.on('keydown-EIGHT', guard(()=> this.tryEquipTool('sniper')));
+  this.input.keyboard.on('keydown-BACKTICK', guard(()=> this.tryEquipTool('rifle'))); // optional key (tilde)
   // Quick-equip bazooka with T
   this.input.keyboard.on('keydown-T', guard(()=> this.tryEquipTool('bazooka')));
   this.input.keyboard.on('keydown-G', guard(()=> this.tryEquipTool('grenade')));
@@ -797,6 +951,7 @@ class GameScene extends Phaser.Scene {
     // Pause toggle (Esc)
     this.input.keyboard.on('keydown-ESC', ()=>{
       if (!this.started) return;
+      if (this.buildMiniGame.active) { this.cancelBuildMiniGame(); return; }
       if (this.isPaused) this.resumeGame(); else this.pauseGame();
     });
 
@@ -882,11 +1037,31 @@ class GameScene extends Phaser.Scene {
   this.weaponSprite.setOrigin(0.15, 0.5);
   this.updateWeaponSprite?.();
 
+  // Build minigame DOM elements
+  this.buildTimerEl = document.createElement('div');
+  Object.assign(this.buildTimerEl.style,{position:'absolute',top:'50px',left:'50%',transform:'translateX(-50%)',fontFamily:'monospace',color:'#fff',background:'rgba(0,0,0,0.45)',padding:'4px 10px',borderRadius:'6px',display:'none',zIndex:999});
+  document.body.appendChild(this.buildTimerEl);
+  this.buildPaletteEl = document.createElement('div');
+  Object.assign(this.buildPaletteEl.style,{position:'absolute',bottom:'30px',left:'50%',transform:'translateX(-50%)',display:'none',gap:'6px',flexWrap:'wrap',background:'rgba(0,0,0,0.55)',padding:'8px 10px',borderRadius:'10px',fontFamily:'monospace',color:'#fff',zIndex:999});
+  this.buildPaletteEl.style.display='none';
+  document.body.appendChild(this.buildPaletteEl);
+
+  // Hotkey start (Shift+B) if not already active
+  this.input.keyboard.on('keydown-B', ()=>{ if (!this.buildMiniGame.active && !this.buildMiniGame.awaitingPlacement && this.input.keyboard.checkDown(this.input.keyboard.addKey('SHIFT'),0)) this.startBuildMiniGame(); });
+
     // Ensure chunks around the player now that player exists
     this.ensureChunksAround(this.player.x);
 
   // Hook up mobile/touch controls from DOM
   this.setupTouchControls();
+
+  // Hotkey: spawn ally drone (Shift+D), cap to 2
+  this.input.keyboard.on('keydown-D', ()=>{
+    const shift = this.input.keyboard.addKey('SHIFT');
+    if (this.input.keyboard.checkDown(shift, 0)) {
+      if ((this.drones?.countActive(true)||0) < 2) { this.spawnAllyDrone(); this.showToast?.('Hyvis drone liittyi'); }
+    }
+  });
 
     // Start/pause UI buttons
     document.getElementById('btnStart')?.addEventListener('click', ()=> this.startGame());
@@ -898,6 +1073,7 @@ class GameScene extends Phaser.Scene {
   document.getElementById('btnMiniMurder')?.addEventListener('click', ()=>{ try{ window.Sfx?.resume(); }catch(e){} this.startMinigame('murder'); });
   document.getElementById('btnMiniParkour')?.addEventListener('click', ()=>{ try{ window.Sfx?.resume(); }catch(e){} this.startMinigame('parkour'); });
   document.getElementById('btnMiniDesert')?.addEventListener('click', ()=>{ try{ window.Sfx?.resume(); }catch(e){} this.startMinigame('desert'); });
+  document.getElementById('btnMiniBuild')?.addEventListener('click', ()=>{ if(!this.buildMiniGame.active && !this.buildMiniGame.awaitingPlacement){ this.startBuildMiniGame(); } });
 
   // Darkness overlay
   this.darknessGfx = this.add.graphics().setScrollFactor(0).setDepth(900);
@@ -967,6 +1143,107 @@ class GameScene extends Phaser.Scene {
 
   // Thunderstorm scheduler and lightning strikes
   this.maybeRunStorm();
+
+    // Enemy sniper spawns: cap at 2 active, perch in trees near player
+    if (!this.isPaused && this.time.now >= (this._nextEnemySoldierAt||0)) {
+      this._nextEnemySoldierAt = this.time.now + Phaser.Math.Between(16000, 26000);
+      if ((this.enemySoldiers?.countActive(true) || 0) < 2) this.trySpawnEnemySoldierNearPlayer();
+    }
+
+    // Enemy soldier AI
+    this.enemySoldiers?.children?.iterate?.((e)=>{
+      if (!e || !e.active) return;
+      const onGround = e.body?.blocked?.down || e.body?.touching?.down;
+      const sx=e.x, sy=e.y; const px=this.player.x, py=this.player.y;
+      const dx=px-sx, dy=py-sy; const dist2=dx*dx+dy*dy; const range=22*TILE, range2=range*range;
+      // LOS
+      let los=false; if (dist2<range2){ const steps=Math.ceil(Math.hypot(dx,dy)/(TILE/3)); los=true; for(let i=1;i<=steps;i++){ const ix=sx+dx*i/steps, iy=sy+dy*i/steps; const tx=Math.floor(ix/TILE), ty=Math.floor(iy/TILE); if (this.hasSolidBlockAt(tx,ty)) { los=false; break; } } }
+      // Mode: perched (gravity off) vs ground
+      const mode = e.getData('mode')||'perch';
+      if (mode==='perch'){
+        // Occasionally drop to ground
+        if (!e._ai) e._ai={};
+        if (!e._ai.nextDescendAt) e._ai.nextDescendAt = this.time.now + Phaser.Math.Between(4000,9000);
+        if (this.time.now >= e._ai.nextDescendAt){
+          e.setData('mode','ground'); e.body.setAllowGravity(true); e._ai.nextDescendAt = this.time.now + Phaser.Math.Between(6000,12000);
+        }
+        // Snipe when LOS
+        if (los && (!e._ai.nextShotAt || this.time.now>=e._ai.nextShotAt)){
+          e._ai.nextShotAt = this.time.now + Phaser.Math.Between(800, 1300);
+          const ang=Math.atan2(dy,dx)+Phaser.Math.FloatBetween(-0.01,0.01);
+          const nx=Math.cos(ang), ny=Math.sin(ang); const sx2=sx+nx*14, sy2=sy+ny*6;
+          const b=this.spawnBulletFrom(sx2, sy2, px, py, { speed: 1100, lifeTiles: 16, spread: 0.008, noBlockDamage: true, fromEnemy: true });
+          try{ window.playSfx?.('shoot'); }catch(e){}
+          // Rare special: throwing knife (insta-kill)
+          if (Math.random()<0.07){ const kb=this.bullets.create(sx2,sy2,'tex_throwing_knife'); kb.setData('fromEnemy',true); kb.setData('isKnife',true); kb.setVelocity(nx*900, ny*900); kb.setRotation(ang); this.time.delayedCall(((12*TILE)/900)*1000,()=>kb.destroy()); }
+        }
+        // face player
+        e.setFlipX(dx<0);
+      } else {
+        // Ground mode: simple chase + occasional jump, sometimes try re-perch to nearest leaves above
+        const dir=Math.sign(dx)||1; e.setVelocityX(dir*140); e.setFlipX(dir<0);
+        const hitWall=e.body?.blocked?.left || e.body?.blocked?.right;
+        if (onGround && hitWall && (!e._ai?.nextJumpAt || this.time.now>=e._ai.nextJumpAt)) { if(!e._ai) e._ai={}; e._ai.nextJumpAt=this.time.now+600; e.setVelocityY(-360); }
+        // shoot with worse accuracy
+        if (los && (!e._ai?.nextShotAt || this.time.now>=e._ai.nextShotAt)) { if(!e._ai) e._ai={}; e._ai.nextShotAt=this.time.now+Phaser.Math.Between(450,900); const ang=Math.atan2(dy,dx)+Phaser.Math.FloatBetween(-0.05,0.05); const nx=Math.cos(ang), ny=Math.sin(ang); const sx2=sx+nx*12, sy2=sy+ny*6; const b=this.spawnBulletFrom(sx2,sy2,px,py,{ speed:900, lifeTiles:10, spread:0.04, noBlockDamage:true, fromEnemy:true }); }
+        // occasionally seek leaves above to climb/perch: teleport to a nearby leaves block top to simulate climb
+        if (!e._ai) e._ai={}; if (!e._ai.nextPerchAt) e._ai.nextPerchAt=this.time.now+Phaser.Math.Between(5000,9000);
+        if (this.time.now>=e._ai.nextPerchAt){
+          const spot=this.findLeavesSpotNear(e.x,e.y,8,6);
+          if (spot){ e.setPosition(spot.x, spot.y); e.setVelocity(0,0); e.body.setAllowGravity(false); e.setData('mode','perch'); }
+          e._ai.nextPerchAt=this.time.now+Phaser.Math.Between(7000,12000);
+        }
+      }
+    });
+
+    // Ally drone AI: hover and assist fire
+    this.drones?.children?.iterate?.((d)=>{
+      if (!d || !d.active) return;
+      // hover to a target offset from player
+      const toX = this.player.x + (d._ai?.targetOffX||-60);
+      const toY = this.player.y + (d._ai?.targetOffY||-90);
+      const dx = toX - d.x, dy = toY - d.y;
+      d.setVelocity(dx*2.2, dy*2.2);
+      // target nearest hostile
+      const groups = [this.slimes, this.zombies, this.oppos, this.birds, this.enemySoldiers];
+      let best=null, bestD2=Infinity; const r=18*TILE, r2=r*r;
+      groups.forEach(gr=> gr?.children?.iterate?.(e=>{ if(!e||!e.active) return; const ddx=e.x-d.x, ddy=e.y-d.y; const d2=ddx*ddx+ddy*ddy; if (d2<bestD2 && d2<r2) { best=e; bestD2=d2; } }));
+      const now=this.time.now;
+      if (best && (!d._ai.nextAt || now>=d._ai.nextAt)){
+        d._ai.nextAt = now + 180;
+        const ang = Math.atan2(best.y-d.y, best.x-d.x) + Phaser.Math.FloatBetween(-0.015,0.015);
+        const nx=Math.cos(ang), ny=Math.sin(ang);
+        const sx=d.x+nx*10, sy=d.y+ny*4;
+        this.spawnBulletFrom(sx,sy,best.x,best.y,{ speed:900, lifeTiles:12, spread:0.01, noBlockDamage:true });
+        try{ window.playSfx?.('shoot'); }catch(e){}
+      }
+    });
+
+    // Build minigame timer
+    if (this.buildMiniGame.active) {
+      this.buildMiniGame.timeLeft -= this.game.loop.delta/1000;
+      if (this.buildMiniGame.timeLeft <= 0) {
+        this.finalizeBuildMiniGame();
+      } else if (this.buildTimerEl) {
+        this.buildTimerEl.textContent = `Rakennus: ${this.buildMiniGame.timeLeft.toFixed(1)}s`;
+      }
+    }
+
+    // Wolves AI
+    if (this.wolves) {
+      this.wolves.children.iterate(w=>{
+        if (!w || !w.active) return;
+        const dx = this.player.x - w.x;
+        const dir = dx>0?1:-1;
+        w.setVelocityX(dir*120);
+        if ((w.body.blocked.left || w.body.blocked.right) && w.body.blocked.down) w.setVelocityY(-250);
+        const dy = Math.abs(this.player.y - w.y);
+        if (Math.abs(dx)<34 && dy<42) {
+          const t=this.time.now;
+          if (!w._nextBite || t>=w._nextBite) { w._nextBite = t+650; this.playerHp = Math.max(0,(this.playerHp||100)-5); }
+        }
+      });
+    }
 
     // Update car proximity and prompt
     if (this.car?.sprite) {
@@ -1294,7 +1571,9 @@ class GameScene extends Phaser.Scene {
       });
     }
 
-    // Allied soldiers AI: move and shoot slimes/zombies (AK-47 cadence with slight spread)
+    // Allied soldiers AI: move and shoot. Types:
+    // - Default (ak47): ground runner, AK cadence
+    // - Jetpack (rifle_jet): performs vertical boosts (≈7 tiles) and fires rifle bursts mid-air
     if (this.soldiers) {
       const now = this.time.now;
       this.soldiers.children.iterate((s)=>{
@@ -1312,34 +1591,61 @@ class GameScene extends Phaser.Scene {
           if (!blocked) { best=e; bestD2=d2; }
         });
         consider(this.slimes); consider(this.zombies);
-        // Movement toward target
         const onGround = s.body?.blocked?.down || s.body?.touching?.down;
-        if (best) {
-          const dir = Math.sign(best.x - s.x) || 1;
-          const speed = 180;
-          s.setVelocityX(dir * speed);
-          s.setFlipX(dir < 0);
-          // Jump if blocked left/right occasionally
-          const hitWall = s.body?.blocked?.left || s.body?.blocked?.right;
-          if (onGround && hitWall && (!s._ai?.nextJumpAt || now >= s._ai.nextJumpAt)) {
-            if (!s._ai) s._ai = {};
-            s._ai.nextJumpAt = now + 500;
-            s.setVelocityY(-360);
-          }
-        } else {
-          // No target: slow to idle
-          s.setVelocityX(0);
-        }
-        if (best && (!s._ai || now >= (s._ai.nextAt||0))){
-          // AK-47 burst: single shot cadence ~110ms
+        const wtype = s.getData('weapon') || 'ak47';
+        if (wtype === 'rifle_jet') {
+          // Jetpack logic: if cooldown ready and (no target or target higher), boost up strongly
           if (!s._ai) s._ai = {};
-          s._ai.nextAt = now + 110;
-          const ang = Math.atan2(best.y - sy, best.x - sx) + Phaser.Math.FloatBetween(-0.04, 0.04);
-          const nx=Math.cos(ang), ny=Math.sin(ang);
-          const sx2 = sx + nx*12, sy2 = sy + ny*6;
-          const extra = this.upgrades.copperUnlocked ? 17 : 0;
-          this.spawnBulletFrom(sx2, sy2, best.x, best.y, { speed: 820, lifeTiles: 9 + extra, spread: 0.06, isMinigun: true, noBlockDamage: true });
-          try { window.playSfx?.('shoot'); } catch(e){}
+          if (onGround && (!s._ai.nextBoostAt || now >= s._ai.nextBoostAt)) {
+            // calculate velocity to reach ~7 tiles height: v = sqrt(2gh)
+            const g = this.physics.world.gravity.y || 900; const h = 7*TILE; const v = Math.sqrt(2*g*h);
+            s.setVelocityY(-v);
+            s._ai.boostingUntil = now + 700; // for flame fx window
+            s._ai.nextBoostAt = now + Phaser.Math.Between(1400, 2200);
+          }
+          // minimal horizontal drift toward target
+          if (best) { const dir = Math.sign(best.x - s.x) || 1; s.setVelocityX(dir * 120); s.setFlipX(dir < 0); }
+          else s.setVelocityX(0);
+          // shooting while airborne (rifle-like precise shots, slower cadence)
+          if (best && (!s._ai.shootAt || now >= s._ai.shootAt)){
+            s._ai.shootAt = now + 220;
+            const ang = Math.atan2(best.y - sy, best.x - sx) + Phaser.Math.FloatBetween(-0.02, 0.02);
+            const nx=Math.cos(ang), ny=Math.sin(ang);
+            const sx2 = sx + nx*12, sy2 = sy + ny*6;
+            const extra = this.upgrades.copperUnlocked ? 12 : 0;
+            this.spawnBulletFrom(sx2, sy2, best.x, best.y, { speed: 1000, lifeTiles: 10 + extra, spread: 0.02, noBlockDamage: true });
+            try { window.playSfx?.('shoot'); } catch(e){}
+          }
+          // Optional: small flame particles under jetpack while boosting — skipped to keep code light
+        } else {
+          // Default ground soldier movement toward target
+          if (best) {
+            const dir = Math.sign(best.x - s.x) || 1;
+            const speed = 180;
+            s.setVelocityX(dir * speed);
+            s.setFlipX(dir < 0);
+            // Jump if blocked left/right occasionally
+            const hitWall = s.body?.blocked?.left || s.body?.blocked?.right;
+            if (onGround && hitWall && (!s._ai?.nextJumpAt || now >= s._ai.nextJumpAt)) {
+              if (!s._ai) s._ai = {};
+              s._ai.nextJumpAt = now + 500;
+              s.setVelocityY(-360);
+            }
+          } else {
+            // No target: slow to idle
+            s.setVelocityX(0);
+          }
+          if (best && (!s._ai || now >= (s._ai.nextAt||0))){
+            // AK-47 burst: single shot cadence ~110ms
+            if (!s._ai) s._ai = {};
+            s._ai.nextAt = now + 110;
+            const ang = Math.atan2(best.y - sy, best.x - sx) + Phaser.Math.FloatBetween(-0.04, 0.04);
+            const nx=Math.cos(ang), ny=Math.sin(ang);
+            const sx2 = sx + nx*12, sy2 = sy + ny*6;
+            const extra = this.upgrades.copperUnlocked ? 17 : 0;
+            this.spawnBulletFrom(sx2, sy2, best.x, best.y, { speed: 820, lifeTiles: 9 + extra, spread: 0.06, isMinigun: true, noBlockDamage: true });
+            try { window.playSfx?.('shoot'); } catch(e){}
+          }
         }
       });
     }
@@ -1751,12 +2057,16 @@ class GameScene extends Phaser.Scene {
     this.isPaused = true;
     this.physics.world.isPaused = true;
     if (!initial) document.getElementById('pauseScreen')?.classList.remove('hidden');
+    // If build minigame active, pause its timer display (keep state)
+    if (this.buildMiniGame.active && this.buildTimerEl) this.buildTimerEl.textContent += ' (tauko)';
   }
   resumeGame(){
     this.isPaused = false;
     this.physics.world.isPaused = false;
     try { window.Sfx?.resume(); } catch(e) {}
     document.getElementById('pauseScreen')?.classList.add('hidden');
+    // Restore build minigame timer label without (tauko)
+    if (this.buildMiniGame.active && this.buildTimerEl) this.buildTimerEl.textContent = `Rakennus: ${this.buildMiniGame.timeLeft.toFixed(1)}s`;
   }
   restartGame(){
     try { window.Sfx?.resume(); } catch(e) {}
@@ -1771,6 +2081,7 @@ class GameScene extends Phaser.Scene {
     // After restart, started should be false so start screen shows again (handled in create)
     const startEl = document.getElementById('startScreen');
     startEl?.classList.remove('hidden');
+    // Clear build minigame UI references (scene recreated anyway)
   }
 
   // --- Minigames ---
@@ -1859,7 +2170,7 @@ class GameScene extends Phaser.Scene {
       if (this.hook.active) this.cancelGrapple(); else this.tryGrapple(pointer);
       return;
     }
-  if (this.tools.equipped === 'pistol' || this.tools.equipped === 'pistol_copper' || this.tools.equipped === 'bow' || this.tools.equipped === 'bow_copper' || this.tools.equipped === 'minigun' || this.tools.equipped === 'minigun_copper' || this.tools.equipped === 'sniper' || this.tools.equipped === 'sniper_copper' || this.tools.equipped === 'cannon' || this.tools.equipped === 'bazooka' || this.tools.equipped === 'bazooka_copper' || this.tools.equipped === 'grenade' || this.tools.equipped === 'grenade_copper' || this.tools.equipped === 'nuke' || this.tools.equipped === 'nuke_copper' || this.tools.equipped === 'plane' || this.tools.equipped === 'plane_copper') {
+  if (this.tools.equipped === 'pistol' || this.tools.equipped === 'pistol_copper' || this.tools.equipped === 'bow' || this.tools.equipped === 'bow_copper' || this.tools.equipped === 'minigun' || this.tools.equipped === 'minigun_copper' || this.tools.equipped === 'sniper' || this.tools.equipped === 'sniper_copper' || this.tools.equipped === 'rifle' || this.tools.equipped === 'cannon' || this.tools.equipped === 'bazooka' || this.tools.equipped === 'bazooka_copper' || this.tools.equipped === 'grenade' || this.tools.equipped === 'grenade_copper' || this.tools.equipped === 'nuke' || this.tools.equipped === 'nuke_copper' || this.tools.equipped === 'plane' || this.tools.equipped === 'plane_copper') {
       if (this.tools.equipped === 'pistol') {
         this.shootBullet(pointer);
       } else if (this.tools.equipped === 'pistol_copper') {
@@ -1890,7 +2201,9 @@ class GameScene extends Phaser.Scene {
         this.firePlaneGun(pointer);
       } else if (this.tools.equipped === 'plane_copper') {
         this.firePlaneGun(pointer, { copper: true });
-      } else {
+      } else if (this.tools.equipped === 'rifle') {
+        this.shootRifle(pointer);
+      } else { // sniper or sniper_copper fallback
         this.shootSniper(pointer, { copper: this.tools.equipped === 'sniper_copper' });
       }
       return;
@@ -1934,6 +2247,65 @@ class GameScene extends Phaser.Scene {
   // If there is water above this tile, let it flow down
   this.tryFlowWaterFrom(tx, ty-1);
     this.saveState();
+  }
+
+  // === Build Minigame Helpers ===
+  startBuildMiniGame(){
+    const palette = ['wood','stone','plank','sand','cactus','tammi'];
+    this.buildMiniGame.active = true;
+    this.buildMiniGame.timeLeft = 30;
+    this.buildMiniGame.palette = palette;
+    this.buildMiniGame.selectedBlock = palette[0];
+    this.buildMiniGame.originTileX = Math.floor(this.player.x / TILE);
+    this.buildMiniGame.originTileY = Math.floor(this.player.y / TILE);
+    this.buildMiniGame.placed.clear();
+    this.buildMiniGame.blueprint = null;
+    if (this.buildTimerEl) { this.buildTimerEl.style.display='block'; this.buildTimerEl.textContent='Rakennus: 30.0s'; }
+    if (this.buildPaletteEl) {
+      this.buildPaletteEl.style.display='flex'; this.buildPaletteEl.innerHTML='';
+      palette.forEach(bt=>{ const b=document.createElement('button'); b.textContent=bt; b.style.padding='4px 6px'; b.style.cursor='pointer'; b.style.background='#333'; b.style.color='#fff'; b.style.border='1px solid #777'; b.style.borderRadius='4px'; b.onclick=()=>{ this.buildMiniGame.selectedBlock=bt; [...this.buildPaletteEl.children].forEach(c=>c.style.outline='none'); b.style.outline='2px solid #fff';}; this.buildPaletteEl.appendChild(b); if(bt===this.buildMiniGame.selectedBlock) b.style.outline='2px solid #fff'; });
+    }
+    this.showToast('Rakennus alkoi (30s)!');
+  }
+
+  finalizeBuildMiniGame(){
+    if (!this.buildMiniGame.active) return;
+    this.buildMiniGame.active = false;
+    if (this.buildTimerEl) this.buildTimerEl.style.display='none';
+    if (this.buildPaletteEl) this.buildPaletteEl.style.display='none';
+    const entries=[...this.buildMiniGame.placed.entries()].map(([k,v])=>{const [dx,dy]=k.split(',').map(Number);return {dx,dy,type:v};});
+    if (entries.length===0){ this.showToast('Ei yhtään blokkia'); return; }
+    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity; entries.forEach(e=>{ if(e.dx<minX)minX=e.dx; if(e.dy<minY)minY=e.dy; if(e.dx>maxX)maxX=e.dx; if(e.dy>maxY)maxY=e.dy; });
+    const blocks=entries.map(e=>({dx:e.dx-minX,dy:e.dy-minY,type:e.type}));
+    this.buildMiniGame.blueprint={blocks,w:maxX-minX+1,h:maxY-minY+1};
+    this.buildMiniGame.awaitingPlacement=true;
+    this.showToast('Oikea klikkaus: sijoita talo');
+  }
+
+  cancelBuildMiniGame(){
+    if (!this.buildMiniGame.active) return;
+    this.buildMiniGame.active = false;
+    this.buildMiniGame.placed.clear();
+    if (this.buildTimerEl) this.buildTimerEl.style.display='none';
+    if (this.buildPaletteEl) this.buildPaletteEl.style.display='none';
+    this.showToast('Rakennus peruttu');
+  }
+
+  placeBlueprintAtTiles(tx,ty){
+    const bp=this.buildMiniGame.blueprint; if(!bp)return;
+    bp.blocks.forEach(b=>{ const gx=tx+b.dx, gy=ty+b.dy; const key=`${gx},${gy}`; if(!this.blocks.has(key)) this.placeBlock(gx,gy,b.type); });
+    // teleport
+    const px=(tx+Math.floor(bp.w/2))*TILE+TILE/2; const py=(ty+bp.h)*TILE - TILE/2;
+    this.player.setPosition(px,py-40);
+    this.buildMiniGame.awaitingPlacement=false; this.buildMiniGame.blueprint=null;
+    this.startWolfNight();
+  }
+
+  startWolfNight(){
+    this.showToast('Yö & sudet!');
+    const duration=20000; const endAt=this.time.now+duration;
+    const spawn=()=>{ if(this.time.now>endAt)return; const side=Math.random()<0.5?-1:1; const sx=this.player.x+side*(10+Math.random()*8)*TILE; const sy=this.player.y-5*TILE; const w=this.wolves.create(sx,sy,'tex_wolf'); w.setDepth(5); w.body.setSize(24,16).setOffset(0,4); this.time.delayedCall(1400+Math.random()*1200,spawn); };
+    spawn();
   }
 
   // --- Teleport (portal) placement and logic ---
@@ -2111,6 +2483,21 @@ class GameScene extends Phaser.Scene {
     this.soldierCloners.delete(key);
     this.soldierClonerPositions = this.soldierClonerPositions.filter(p=> !(p.tx===tx && p.ty===ty));
     this.saveState();
+  }
+
+  // Spawn a single allied jetpack soldier at given tile or near player
+  spawnJetpackSoldier(opts={}){
+    const tx = (typeof opts.tx === 'number') ? opts.tx : Math.floor(this.player.x / TILE);
+    const ty = (typeof opts.ty === 'number') ? opts.ty : Math.floor(this.player.y / TILE) - 1;
+    if (this.hasSolidBlockAt(tx, ty)) return false;
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    const s = this.physics.add.image(x, y, 'tex_soldier_jetpack').setDepth(5);
+    s.setData('type','ally'); s.setData('weapon','rifle_jet'); s.setData('nextAt', 0);
+    s.body.allowGravity = true; s.setCollideWorldBounds(true);
+    if (s.body?.setSize) s.body.setSize(20, 34).setOffset(4, 2);
+    s._ai = { nextAt: 0 };
+    this.soldiers?.add?.(s);
+    return true;
   }
 
   maybeRunSoldierCloners(){
@@ -2513,6 +2900,36 @@ class GameScene extends Phaser.Scene {
         this.saveState();
       }
     };
+  }
+
+  shootRifle(pointer){
+    // Rifle: medium range + cluster 6 bullets appearing 9 tiles ahead
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const dx = wp.x - this.player.x;
+    const dy = wp.y - this.player.y;
+    const dist = Math.sqrt(dx*dx + dy*dy); if (!dist) return;
+    const nx = dx / dist, ny = dy / dist;
+    // primary bullet (slightly slower than sniper)
+    const speed = 820;
+    const main = this.bullets.create(this.player.x, this.player.y, 'tex_bullet');
+    main.setVelocity(nx*speed, ny*speed); main.setRotation(Math.atan2(ny,nx));
+    const lifeMs = (15 * TILE / speed) * 1000; this.time.delayedCall(lifeMs, ()=>{ if (main.active) main.destroy(); });
+    // cluster ahead
+    const ahead = 9 * TILE;
+    const baseX = this.player.x + nx * ahead;
+    const baseY = this.player.y + ny * ahead;
+    const extraCount = 6;
+    for (let i=0;i<extraCount;i++){
+      const offAngle = (i - (extraCount-1)/2) * 0.02;
+      const ca=Math.cos(offAngle), sa=Math.sin(offAngle);
+      const vx = nx*ca - ny*sa;
+      const vy = nx*sa + ny*ca;
+      const b = this.bullets.create(baseX + (i%2), baseY + ((i%3)-1), 'tex_bullet');
+      b.setVelocity(vx*speed, vy*speed);
+      b.setRotation(Math.atan2(vy,vx));
+      const life2 = (9 * TILE / speed) * 1000; this.time.delayedCall(life2, ()=>{ if (b.active) b.destroy(); });
+      b._lastCheck = 0; b.preUpdate = (t,dt)=>{ Phaser.Physics.Arcade.Sprite.prototype.preUpdate.call(b,t,dt); b._lastCheck+=dt; if (b._lastCheck<30) return; b._lastCheck=0; const tx=Math.floor(b.x/TILE), ty=Math.floor(b.y/TILE); const key=`${tx},${ty}`; if (this.cannonTiles.has(key)) { this.removeCannonAt(tx,ty); b.destroy(); this.saveState(); } };
+    }
   }
 
   // Bazooka: fires a slow rocket that explodes on impact without breaking blocks, damaging enemies in radius
@@ -2931,6 +3348,42 @@ class GameScene extends Phaser.Scene {
     this.time.delayedCall(180, () => this.player.clearTint());
   }
 
+  // Find a leaves block near (x,y) and return a perch position (top center)
+  findLeavesSpotNear(x, y, rx=10, ry=8){
+    const tx0=Math.floor(x/TILE), ty0=Math.floor(y/TILE);
+    for (let r=0;r<=Math.max(rx,ry);r++){
+      for (let ox=-r; ox<=r; ox++) for (let oy=-r; oy<=r; oy++){
+        if (Math.abs(ox)>rx || Math.abs(oy)>ry) continue;
+        const tx=tx0+ox, ty=ty0+oy; const key=`${tx},${ty}`; const spr=this.blocks.get(key);
+        if (!spr) continue; if (spr.getData('type')!=='leaves') continue;
+        // ensure space above is empty for sprite
+        if (this.hasSolidBlockAt(tx, ty-1)) continue;
+        return { x: tx*TILE + TILE/2, y: (ty-1)*TILE + TILE/2 };
+      }
+    }
+    return null;
+  }
+
+  trySpawnEnemySoldierNearPlayer(){
+    // choose a leaves spot near the player; if none, bail
+    const spot=this.findLeavesSpotNear(this.player.x, this.player.y, 16, 10);
+    if (!spot) return false;
+    const e=this.enemySoldiers.create(spot.x, spot.y, 'tex_enemy_soldier');
+    e.setDepth(5); e.body.setSize(20,34).setOffset(4,2); e.body.setAllowGravity(false);
+    e.setData('mode','perch'); e._ai={};
+    return true;
+  }
+
+  // Spawn a friendly hovering drone near player
+  spawnAllyDrone(){
+    const x = this.player.x + (Math.random()<0.5?-60:60);
+    const y = this.player.y - 80;
+    const d = this.drones.create(x,y,'tex_drone');
+    d.setDepth(5);
+    d._ai = { targetOffX: Phaser.Math.Between(-70,-50), targetOffY: Phaser.Math.Between(-100,-80), nextAt: 0 };
+    return d;
+  }
+
   placePlank(pointer) {
     if (this.inv.plank <= 0) { this.showToast('Ei lankkuja! Craftaa C'); return; }
     const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
@@ -3202,6 +3655,7 @@ class GameScene extends Phaser.Scene {
     b.setVelocity(nx*speed, ny*speed);
     b.setRotation(Math.atan2(ny, nx));
   if (opts.ignoreCannonKey) b.setData('ignoreCannonKey', opts.ignoreCannonKey);
+  if (opts.fromEnemy) b.setData('fromEnemy', true);
   if (opts.noBlockDamage) b.setData('noBlockDamage', true);
     const lifeMs = ((opts.lifeTiles || 6) * TILE / speed) * 1000;
     this.time.delayedCall(lifeMs, ()=>{ if (b.active) b.destroy(); });
@@ -3423,7 +3877,7 @@ class GameScene extends Phaser.Scene {
     slots[3].textContent = `Kolikot: ${this.state.coins}`;
     slots[4].textContent = this.state.canFly ? 'Lento ✓' : '';
     // Show equipped tool
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', tower:'Ampumatorni',
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', rifle:'Kivääri', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', tower:'Ampumatorni',
     pistol_copper:'Pistooli (Kupari)', bow_copper:'Jousipyssy (Kupari)', minigun_copper:'Minigun (Kupari)', ak47_copper:'AK-47 (Kupari)', knife_copper:'Puukko (Kupari)', sniper_copper:'Tarkka-ase (Kupari)', bazooka_copper:'Bazooka (Kupari)', grenade_copper:'Kranaatti (Kupari)', nuke_copper:'Ydinase (Kupari)', pamppu_copper:'Pamppu (Kupari)', plane_copper:'Lentokone (Kupari)'
   };
   const eq = this.tools.equipped;
@@ -3440,7 +3894,8 @@ class GameScene extends Phaser.Scene {
   let key = null;
     if (eq === 'pistol') key = 'tex_weapon_pistol';
     else if (eq === 'minigun') key = 'tex_weapon_minigun';
-    else if (eq === 'sniper') key = 'tex_weapon_sniper';
+  else if (eq === 'sniper') key = 'tex_weapon_sniper';
+  else if (eq === 'rifle') key = 'tex_weapon_rifle';
     else if (eq === 'bazooka') key = 'tex_weapon_bazooka';
     else if (eq === 'knife') key = 'tex_weapon_knife';
   else if (eq === 'grenade') key = 'tex_grenade';
@@ -3455,18 +3910,40 @@ class GameScene extends Phaser.Scene {
     // copper variants reuse same sprites for now
     else if (/_copper$/.test(eq)) {
       const base = eq.replace(/_copper$/,'');
-      const map = { pistol:'tex_weapon_pistol', minigun:'tex_weapon_minigun', sniper:'tex_weapon_sniper', bazooka:'tex_weapon_bazooka', knife:'tex_weapon_knife', grenade:'tex_grenade', nuke:'tex_nuke', wizard:'tex_weapon_wand', pamppu:'tex_weapon_baton', ak47:'tex_weapon_ak47', flame:'tex_weapon_flamer', bow:'tex_weapon_bow', cannon:'tex_cannon_base' };
+  const map = { pistol:'tex_weapon_pistol', minigun:'tex_weapon_minigun', sniper:'tex_weapon_sniper', rifle:'tex_weapon_rifle', bazooka:'tex_weapon_bazooka', knife:'tex_weapon_knife', grenade:'tex_grenade', nuke:'tex_nuke', wizard:'tex_weapon_wand', pamppu:'tex_weapon_baton', ak47:'tex_weapon_ak47', flame:'tex_weapon_flamer', bow:'tex_weapon_bow', cannon:'tex_cannon_base' };
       key = map[base] || null;
     }
     // Hide for non-weapon tools
     if (key) {
       this.weaponSprite.setTexture(key).setVisible(true);
-      // Adjust origin for round items
-      if (eq === 'grenade' || eq === 'nuke') this.weaponSprite.setOrigin(0.5,0.5);
-      else this.weaponSprite.setOrigin(0.15,0.5);
-      // Slight scale tweaks
-      const scale = (eq==='nuke') ? 0.9 : (eq==='grenade' ? 0.9 : 1);
-      this.weaponSprite.setScale(scale);
+      // Dynamic origin & scale based on weapon length so hand grips near rear
+  const longWeapons = new Set(['tex_weapon_sniper','tex_weapon_bazooka']);
+      const midWeapons = new Set(['tex_weapon_minigun','tex_weapon_ak47','tex_weapon_flamer']);
+      if (eq === 'grenade' || eq === 'nuke') {
+        this.weaponSprite.setOrigin(0.5,0.5).setScale(0.9);
+      } else if (longWeapons.has(key)) {
+        this.weaponSprite.setOrigin(0.1,0.55).setScale(1);
+      } else if (midWeapons.has(key)) {
+        this.weaponSprite.setOrigin(0.18,0.55).setScale(1);
+      } else if (eq === 'knife') {
+        this.weaponSprite.setOrigin(0.25,0.55).setScale(0.9);
+      } else if (eq === 'pamppu') {
+        this.weaponSprite.setOrigin(0.15,0.55).setScale(1);
+      } else if (eq === 'wizard') {
+        this.weaponSprite.setOrigin(0.15,0.55).setScale(1);
+      } else if (eq === 'bow') {
+        this.weaponSprite.setOrigin(0.2,0.55).setScale(1);
+      } else if (eq === 'cannon') {
+        this.weaponSprite.setOrigin(0.3,0.5).setScale(0.8);
+      } else {
+        this.weaponSprite.setOrigin(0.2,0.55).setScale(1);
+      }
+      // Copper variant tint overlay (simple colorize)
+      if (/_copper$/.test(eq)) {
+        this.weaponSprite.setTint(0xffb25a);
+      } else {
+        this.weaponSprite.clearTint();
+      }
     } else {
       this.weaponSprite.setVisible(false);
     }
@@ -3476,7 +3953,7 @@ class GameScene extends Phaser.Scene {
     const select = document.getElementById('toolSelect');
     if (!select) return;
     select.innerHTML = '';
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', tower:'Ampumatorni',
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', rifle:'Kivääri', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', tower:'Ampumatorni',
     pistol_copper:'Pistooli (Kupari)', bow_copper:'Jousipyssy (Kupari)', minigun_copper:'Minigun (Kupari)', ak47_copper:'AK-47 (Kupari)', knife_copper:'Puukko (Kupari)', sniper_copper:'Tarkka-ase (Kupari)', bazooka_copper:'Bazooka (Kupari)', grenade_copper:'Kranaatti (Kupari)', nuke_copper:'Ydinase (Kupari)', pamppu_copper:'Pamppu (Kupari)', plane_copper:'Lentokone (Kupari)'
   };
     for (const tool in this.tools.owned) {
@@ -4983,6 +5460,24 @@ window.addEventListener('load', () => {
   });
 
   document.getElementById('closeMerchant')?.addEventListener('click', () => window.gameScene?.closeMerchant());
+
+  // Stone-based shop actions
+  // Convert 10 stone -> 5 coins
+  const stoneToCoins = ()=>{ const s=window.gameScene; if(!s) return; if (s.inv.stone>=10){ s.inv.stone-=10; s.state.coins+=5; s.updateUI(); s.saveState(); s.showToast?.('Vaihdettu 10 kiveä -> 5 kolikkoa'); } };
+  document.getElementById('btnStoneToCoins')?.addEventListener('click', stoneToCoins);
+  document.getElementById('btnStoneToCoins2')?.addEventListener('click', stoneToCoins);
+  // Buy pistol with stone: 25 stone
+  const buyPistolWithStone = ()=>{ const s=window.gameScene; if(!s) return; if (s.inv.stone>=25){ s.inv.stone-=25; s.tools.owned.pistol=true; s.updateUI(); s.updateToolSelect(); s.saveState(); s.showToast?.('Pistooli ostettu kivillä!'); } };
+  document.getElementById('buyPistolStone')?.addEventListener('click', buyPistolWithStone);
+  document.getElementById('buyPistolStone2')?.addEventListener('click', buyPistolWithStone);
+  // Buy rifle with stone: 40 stone
+  const buyRifleWithStone = ()=>{ const s=window.gameScene; if(!s) return; if (s.inv.stone>=40){ s.inv.stone-=40; s.tools.owned.rifle=true; s.updateUI(); s.updateToolSelect(); s.saveState(); s.showToast?.('Kivääri ostettu kivillä!'); } };
+  document.getElementById('buyRifleStone')?.addEventListener('click', buyRifleWithStone);
+  document.getElementById('buyRifleStone2')?.addEventListener('click', buyRifleWithStone);
+  // Hire jetpack soldier: costs 30 stone
+  const hireJetpackSoldier = ()=>{ const s=window.gameScene; if(!s) return; if (s.inv.stone>=30){ s.inv.stone-=30; s.spawnJetpackSoldier(); s.updateUI(); s.saveState(); s.showToast?.('Sotilas rakettirepulla liittyi!'); } };
+  document.getElementById('hireJetSoldier')?.addEventListener('click', hireJetpackSoldier);
+  document.getElementById('hireJetSoldier2')?.addEventListener('click', hireJetpackSoldier);
 
   // Settings: volumes and toggles
   // Worlds UI
