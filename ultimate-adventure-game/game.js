@@ -120,6 +120,9 @@ class GameScene extends Phaser.Scene {
 
   // Weather: thunderstorms
   this.weather = { isStorm: false, nextLightningAt: 0, nextStormCheckAt: 0, stormEndsAt: 0 };
+  // Hunger/food state
+  this.hunger = { value: 100, max: 100, nextTickAt: 0 };
+  this.food = { meat: 0 };
 
   // Lightning rods (Ukonjohdatin)
   this.rodPositions = []; // [{tx,ty,hp}]
@@ -698,6 +701,28 @@ class GameScene extends Phaser.Scene {
   // Cannon base and barrel textures (placeable)
   g.fillStyle(0x6e6e6e,1); g.fillRoundedRect(0,0,32,20,5); g.lineStyle(2,0x4a4a4a,1); g.strokeRoundedRect(0,0,32,20,5); g.generateTexture('tex_cannon_base',32,20); g.clear();
   g.fillStyle(0x4a4a4a,1); g.fillRect(0,0,26,8); g.lineStyle(2,0x2e2e2e,1); g.strokeRect(0,0,26,8); g.generateTexture('tex_cannon_barrel',26,8); g.clear();
+  // Animal textures
+  // Pig
+  g.fillStyle(0xff99aa,1); g.fillRect(0,6,24,12);
+  g.fillStyle(0xffb5c1,1); g.fillRect(18,2,8,8);
+  g.fillStyle(0x000000,1); g.fillRect(22,5,2,2);
+  g.fillStyle(0x443322,1); g.fillRect(4,18,4,4); g.fillRect(14,18,4,4);
+  g.generateTexture('tex_pig',28,22); g.clear();
+  // Chicken
+  g.fillStyle(0xffffff,1); g.fillRect(0,8,18,10);
+  g.fillStyle(0xffffaa,1); g.fillRect(14,4,6,6);
+  g.fillStyle(0xff3333,1); g.fillRect(16,2,2,2);
+  g.fillStyle(0x000000,1); g.fillRect(18,6,1,1);
+  g.fillStyle(0xffaa00,1); g.fillRect(2,18,2,4); g.fillRect(8,18,2,4);
+  g.generateTexture('tex_chicken',22,22); g.clear();
+  // Cow
+  g.fillStyle(0x8b6f4f,1); g.fillRect(0,6,28,14);
+  g.fillStyle(0xa88664,1); g.fillRect(20,2,10,8);
+  g.fillStyle(0x000000,1); g.fillRect(24,5,2,2);
+  g.fillStyle(0x5a4632,1); g.fillRect(6,18,4,4); g.fillRect(16,18,4,4);
+  g.generateTexture('tex_cow',32,22); g.clear();
+  // Meat item
+  g.fillStyle(0xaa3b2f,1); g.fillRect(2,2,12,8); g.fillStyle(0xffcbbd,1); g.fillRect(12,3,2,6); g.generateTexture('tex_meat',16,12); g.clear();
   
   }
 
@@ -725,6 +750,9 @@ class GameScene extends Phaser.Scene {
   this.drones = this.physics.add.group({ allowGravity: false });
   this.wolves = this.physics.add.group();
   this.physics.add.collider(this.wolves, this.platforms);
+  // Neutral animals
+  this.animals = this.physics.add.group();
+  this.physics.add.collider(this.animals, this.platforms);
     // Tanks group
     this.tanks = this.physics.add.group();
     this.physics.add.collider(this.tanks, this.platforms);
@@ -767,6 +795,11 @@ class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.slimes, this.onSlimeHit, null, this);
   this.physics.add.overlap(this.player, this.zombies, (p,z)=>{ this._hitByEnemy(z); }, null, this);
   this.physics.add.overlap(this.player, this.enemySoldiers, (p,e)=>{ this._hitByEnemy(e); }, null, this);
+  // Player bullets vs animals (enemy bullets do not harm animals)
+  this.physics.add.overlap(this.bullets, this.animals, (bullet, animal)=>{
+    if (bullet?.getData && bullet.getData('fromEnemy')) { bullet.destroy(); return; }
+    const x=animal.x,y=animal.y; animal.destroy(); this.dropMeat(x,y); bullet.destroy();
+  }, null, this);
   // Allies collide with terrain
   this.physics.add.collider(this.soldiers, this.platforms);
   this.physics.add.collider(this.enemySoldiers, this.platforms);
@@ -1034,6 +1067,13 @@ class GameScene extends Phaser.Scene {
   this.input.keyboard.on('keydown-M', guard(()=> this.cycleMode()));
   // Toggle Ninja mode (J)
   this.input.keyboard.on('keydown-J', guard(()=> this.toggleNinjaMode()));
+  // Eat meat to restore hunger (H)
+  this.input.keyboard.on('keydown-H', guard(()=>{
+    if (this.food.meat > 0 && this.hunger.value < this.hunger.max) {
+      this.food.meat -= 1; this.hunger.value = Math.min(this.hunger.max, this.hunger.value + 30);
+      this.showToast('Söit lihaa (+nälkä)'); this.updateInventoryUI(); this.saveState();
+    }
+  }));
   // Ninja jump strike (K)
   this.input.keyboard.on('keydown-K', guard(()=>{ if (this.ninja.active) this.ninjaJumpStrike(); }));
     // Debug: show death banner with B
@@ -2029,6 +2069,24 @@ class GameScene extends Phaser.Scene {
   this.maybeRunSlimeCloners();
   this.maybeRunSoldierCloners();
   this.maybeRunTankCloners();
+
+  // Animal simple roaming
+  if (this.animals) {
+    this.animals.children.iterate((a)=>{
+      if (!a || !a.body) return;
+      if ((a.body.blocked.left && a.body.velocity.x<0) || (a.body.blocked.right && a.body.velocity.x>0)) a.setVelocityX(-a.body.velocity.x);
+      if (Math.random() < 0.005 && (a.body.blocked.down || a.body.touching.down)) a.setVelocityY(-180);
+      if (Math.random() < 0.01) a.setVelocityX((Math.random()<0.5?-1:1)*(40+Math.random()*60));
+    });
+  }
+
+  // Hunger decay (every ~6s, -1)
+  if (this.time.now >= (this.hunger.nextTickAt||0)){
+    this.hunger.nextTickAt = this.time.now + 6000;
+    this.hunger.value = Math.max(0, this.hunger.value - 1);
+    if (this.hunger.value === 0) { this.damage(1); }
+    this.updateInventoryUI();
+  }
 
   // Tank AI tick
   if (this.tanks) {
@@ -4309,6 +4367,12 @@ class GameScene extends Phaser.Scene {
     s.setVelocity(Phaser.Math.Between(-60,60), -200); s.setBounce(0.3); s.setCollideWorldBounds(true);
     this.physics.add.collider(s, this.platforms);
   }
+  dropMeat(x,y){
+    const m = this.items.create(x, y-6, 'tex_meat');
+    m.setData('item','meat');
+    m.setVelocity(Phaser.Math.Between(-60,60), -220); m.setBounce(0.25); m.setCollideWorldBounds(true);
+    this.physics.add.collider(m, this.platforms);
+  }
 
   onItemPickup(player, item){
     const type = item.getData('item');
@@ -4318,6 +4382,10 @@ class GameScene extends Phaser.Scene {
         if (type === 'wood') this.inv.wood++; else this.inv.stone++;
       }
   this.updateInventoryUI(); this.updateBackpackUI(); this.saveState();
+    } else if (type === 'meat') {
+      this.food.meat += 1;
+      this.showToast('Liha +1');
+      this.updateInventoryUI(); this.saveState();
     }
     item.destroy();
   }
@@ -4395,6 +4463,9 @@ class GameScene extends Phaser.Scene {
     slots[2].textContent = `Kivi: ${this.inv.stone}`;
     slots[3].textContent = `Kolikot: ${this.state.coins}`;
     slots[4].textContent = this.state.canFly ? 'Lento ✓' : '';
+      // Show hunger in slot 4 suffix
+      const hv = Math.max(0, Math.min(this.hunger.value|0, this.hunger.max));
+      slots[4].textContent += (slots[4].textContent? ' | ' : '') + `Nälkä: ${hv}/${this.hunger.max} (Liha: ${this.food.meat})`;
     // Show equipped tool
   const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', rifle:'Kivääri', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', tower:'Ampumatorni',
     pistol_copper:'Pistooli (Kupari)', bow_copper:'Jousipyssy (Kupari)', minigun_copper:'Minigun (Kupari)', ak47_copper:'AK-47 (Kupari)', knife_copper:'Puukko (Kupari)', sniper_copper:'Tarkka-ase (Kupari)', bazooka_copper:'Bazooka (Kupari)', grenade_copper:'Kranaatti (Kupari)', nuke_copper:'Ydinase (Kupari)', pamppu_copper:'Pamppu (Kupari)', plane_copper:'Lentokone (Kupari)'
@@ -4840,6 +4911,20 @@ class GameScene extends Phaser.Scene {
       const x = (startTx+Math.floor(rng()*CHUNK_W))*TILE + TILE/2;
       const y = (SURFACE_Y-2)*TILE - 20;
       const s = this.slimes.create(x, y, 'tex_slime');
+    // Neutral animals on surface (daytime decoration)
+    if (rng() < 0.7){
+      const count = 1 + Math.floor(rng()*2);
+      for (let i=0;i<count;i++){
+        const tx = startTx + 2 + Math.floor(rng() * (CHUNK_W - 4));
+        const x = tx*TILE + TILE/2;
+        const y = (SURFACE_Y-2)*TILE - 10;
+        const choice = rng(); let key='tex_pig'; if (choice<0.33) key='tex_pig'; else if (choice<0.66) key='tex_chicken'; else key='tex_cow';
+        const a = this.animals.create(x, y, key);
+        a.setBounce(0.05, 0.0); a.setCollideWorldBounds(true); a.setVelocityX(rng()<0.5?-50:50);
+        a.body.setSize(20, 14).setOffset(4, 6);
+        this.chunks.get(cx)?.enemies.push(a); // reuse list for cleanup
+      }
+    }
       s.setBounce(0.1, 0.0);
       s.setCollideWorldBounds(true);
       s.setVelocityX(rng()<0.5?-80:80);
@@ -5345,7 +5430,7 @@ class GameScene extends Phaser.Scene {
   }
 
   saveState(){
-  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, bounceShoes: this.state.bounceShoes, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, soldierCloners: this.soldierClonerPositions, tankCloners: this.tankClonerPositions, torches: this.torchPositions, mines: this.minePositions, rods: this.rodPositions, towers: this.towerPositions, traps: this.trapPositions, weather: this.weather, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic', upgrades: this.upgrades };
+  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, bounceShoes: this.state.bounceShoes, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, soldierCloners: this.soldierClonerPositions, tankCloners: this.tankClonerPositions, torches: this.torchPositions, mines: this.minePositions, rods: this.rodPositions, towers: this.towerPositions, traps: this.trapPositions, weather: this.weather, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic', upgrades: this.upgrades, hunger: this.hunger, food: this.food };
     try {
       const wid = window.localStorage.getItem('UAG_worldCurrent') || 'world-1';
       localStorage.setItem(`UAG_save_${wid}`, JSON.stringify(data));
@@ -5407,6 +5492,8 @@ class GameScene extends Phaser.Scene {
   if (d.tools) this.tools = d.tools;
   if (d.mode) this.mode.current = d.mode;
   if (d.upgrades) this.upgrades = d.upgrades;
+  if (d.hunger) { this.hunger.value = Math.max(0, Math.min(d.hunger.value||0, this.hunger.max)); }
+  if (d.food) { this.food.meat = d.food.meat||0; }
   // Ensure pistol, cannon, minigun, knife, sniper & bazooka exist for older saves
   if (!this.tools.owned?.pistol) this.tools.owned.pistol = true;
   if (!this.tools.owned?.cannon) this.tools.owned.cannon = true;
