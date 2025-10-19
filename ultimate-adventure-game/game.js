@@ -133,6 +133,12 @@ class GameScene extends Phaser.Scene {
   this.darknessGfx = null;
   this._nextZombieSpawnAt = 0;
   this._nextBossSpawnAt = 0;
+  // Ambient SFX cadence
+  this._nextBirdAt = 0;
+  this._nextPeckerAt = 0;
+  // Item bag: glider, jetpack, invisibility
+  this.itemBag = { glider: false, jetpack: false, invis: false, timeCdUntil: 0, timeActiveUntil: 0 };
+  this._timeStopped = false; // deprecated, kept for migration safety
 
   // Torches (light sources) prevent zombie spawns nearby
   this.torchPositions = [];
@@ -195,36 +201,58 @@ class GameScene extends Phaser.Scene {
     // Generate simple textures at runtime so the game works without any files
     const g = this.add.graphics();
 
-    // Ground tile (dirt)
-    g.fillStyle(0x8B5A2B, 1);
-    g.fillRect(0, 0, TILE, TILE);
-    g.lineStyle(2, 0x6b3a1b, 1);
-    g.strokeRect(0, 0, TILE, TILE);
-    g.generateTexture('tex_ground', TILE, TILE);
-    g.clear();
+    // Ground (dirt) with speckles and subtle strata
+    g.fillStyle(0x7d4f26, 1); g.fillRect(0, 0, TILE, TILE);
+    // subtle darker/lighter noise dots
+    for (let i=0;i<50;i++){ const x=Math.random()*TILE, y=Math.random()*TILE; const c=Math.random()<0.5?0x6b3a1b:0x996237; g.fillStyle(c, 0.35); g.fillRect(x, y, 2, 2); }
+    // faint horizontal strata lines
+    g.lineStyle(1, 0x6b3a1b, 0.25); for (let y=6;y<TILE;y+=6){ g.beginPath(); g.moveTo(0,y+Math.random()*1.5); g.lineTo(TILE, y+Math.random()*1.5); g.strokePath(); }
+    // outline
+    g.lineStyle(2, 0x553018, 1); g.strokeRect(0, 0, TILE, TILE);
+    g.generateTexture('tex_ground', TILE, TILE); g.clear();
 
-    // Stone tile
-    g.fillStyle(0x7b7b7b, 1);
-    g.fillRect(0, 0, TILE, TILE);
-    g.lineStyle(2, 0x5c5c5c, 1);
-    g.strokeRect(0, 0, TILE, TILE);
-    g.generateTexture('tex_stone', TILE, TILE);
-    g.clear();
+    // Ground with grass top for surface tiles
+    const GH = Math.max(6, Math.floor(TILE*0.28));
+    g.fillStyle(0x7d4f26, 1); g.fillRect(0, 0, TILE, TILE);
+    for (let i=0;i<40;i++){ const x=Math.random()*TILE, y=GH + Math.random()*(TILE-GH); const c=Math.random()<0.5?0x6b3a1b:0x996237; g.fillStyle(c, 0.35); g.fillRect(x, y, 2, 2); }
+    // grass layer
+    g.fillStyle(0x2a8f2a, 1); g.fillRect(0, 0, TILE, GH);
+    // blade tips
+    g.fillStyle(0x36a536, 1);
+    for (let i=0;i<14;i++){ const bx=Math.floor((i+Math.random()*0.8)*(TILE/14)); const h=2+Math.floor(Math.random()*3); g.fillRect(bx, GH-h, 2, h); }
+    // darker grass shadows
+    g.fillStyle(0x237823, 0.3); for (let i=0;i<8;i++){ const w=4+Math.random()*8; const x=Math.random()*(TILE-w); g.fillRect(x, GH-2, w, 2); }
+    g.lineStyle(2, 0x553018, 1); g.strokeRect(0, 0, TILE, TILE);
+    g.generateTexture('tex_ground_grass', TILE, TILE); g.clear();
 
-  // Sand tile (aavikko)
-  g.fillStyle(0xE2C572, 1); // warm sand
-  g.fillRect(0, 0, TILE, TILE);
-  g.lineStyle(2, 0xC9AE5F, 1);
-  g.strokeRect(0, 0, TILE, TILE);
-  g.generateTexture('tex_sand', TILE, TILE);
-  g.clear();
+    // Stone with grain, speckles, and cracks
+    g.fillStyle(0x8a8f93, 1); g.fillRect(0, 0, TILE, TILE);
+    // grain speckles
+    for (let i=0;i<70;i++){ const x=Math.random()*TILE, y=Math.random()*TILE; const cc=[0x6f757a,0x9aa1a6][(Math.random()*2)|0]; g.fillStyle(cc, 0.35); g.fillRect(x, y, 1, 1); }
+    // micro cracks
+    g.lineStyle(1, 0x5c646b, 0.5);
+    for (let i=0;i<3;i++){
+      const x0 = Math.random()*TILE*0.6, y0 = Math.random()*TILE;
+      const x1 = x0 + TILE*0.6 + Math.random()*6, y1 = y0 + (Math.random()*2-1)*6;
+      g.beginPath(); g.moveTo(x0,y0); g.lineTo(x1,y1); g.strokePath();
+    }
+    g.lineStyle(2, 0x464b4f, 1); g.strokeRect(0, 0, TILE, TILE);
+    g.generateTexture('tex_stone', TILE, TILE); g.clear();
 
-  
-  g.fillStyle(0xCFA35B, 1);
-  g.fillRect(0, 0, TILE, TILE);
-  g.lineStyle(2, 0xA27E44, 1);
-  g.generateTexture('tex_sandstone', TILE, TILE);
-  g.clear();
+    // Sand with ripples and grains
+    g.fillStyle(0xE2C572, 1); g.fillRect(0, 0, TILE, TILE);
+    // wind ripples
+    g.lineStyle(1, 0xceb361, 0.7); for (let y=5;y<TILE;y+=6){ g.beginPath(); g.moveTo(0,y+Math.sin(y*0.4)*0.6); for (let x=0;x<=TILE;x+=5){ g.lineTo(x, y+Math.sin((x+y)*0.18)*0.8); } g.strokePath(); }
+    // grains
+    for (let i=0;i<40;i++){ const x=Math.random()*TILE, y=Math.random()*TILE; g.fillStyle(0xd8bd6c, 0.35); g.fillRect(x, y, 1, 1); }
+    g.lineStyle(2, 0xC9AE5F, 1); g.strokeRect(0, 0, TILE, TILE);
+    g.generateTexture('tex_sand', TILE, TILE); g.clear();
+
+    // Sandstone with layered strata
+    g.fillStyle(0xCFA35B, 1); g.fillRect(0, 0, TILE, TILE);
+    for (let y=4;y<TILE;y+=4){ const shade = [0xB78E4F,0xD8B069,0xA27E44][(Math.random()*3)|0]; g.fillStyle(shade, 0.45); g.fillRect(0, y-1 + Math.random()*1, TILE, 2); }
+    g.lineStyle(2, 0xA27E44, 1); g.strokeRect(0, 0, TILE, TILE);
+    g.generateTexture('tex_sandstone', TILE, TILE); g.clear();
 
   // Player base texture (keep plain, no border)
   const pw = 28, ph = 36;
@@ -277,11 +305,20 @@ class GameScene extends Phaser.Scene {
   g.lineStyle(2,0x2a992a,1); g.strokeRect(2,2,6,6); g.strokeRect(12,2,6,6);
   g.generateTexture('tex_boots', bootW, bootH); g.clear();
 
-  // Tree trunk and leaves
-  g.fillStyle(0x6b3a1b,1); g.fillRect(0,0,TILE,TILE); g.lineStyle(2,0x4a2a12,1); g.strokeRect(0,0,TILE,TILE); g.generateTexture('tex_trunk',TILE,TILE); g.clear();
+  // Tree trunk (bark lines + knots)
+  g.fillStyle(0x6b3a1b,1); g.fillRect(0,0,TILE,TILE);
+  g.lineStyle(1,0x4a2a12,0.5); for (let x=4;x<TILE;x+=4){ g.beginPath(); g.moveTo(x, 0); g.lineTo(x + (Math.random()*2-1), TILE); g.strokePath(); }
+  g.fillStyle(0x4a2a12,0.6); for (let i=0;i<2;i++){ const kx=6+Math.random()*(TILE-12), ky=6+Math.random()*(TILE-12); g.fillCircle(kx, ky, 3+Math.random()*2); }
+  g.lineStyle(2,0x402410,1); g.strokeRect(0,0,TILE,TILE); g.generateTexture('tex_trunk',TILE,TILE); g.clear();
   // Oak (tammi) trunk variant
-  g.fillStyle(0x8e5b2f,1); g.fillRect(0,0,TILE,TILE); g.lineStyle(2,0x6b3f1b,1); g.strokeRect(0,0,TILE,TILE); g.generateTexture('tex_tammi',TILE,TILE); g.clear();
-    g.fillStyle(0x2e8b57,1); g.fillRect(0,0,TILE,TILE); g.lineStyle(2,0x1d5d3a,1); g.strokeRect(0,0,TILE,TILE); g.generateTexture('tex_leaves',TILE,TILE); g.clear();
+  g.fillStyle(0x8e5b2f,1); g.fillRect(0,0,TILE,TILE);
+  g.lineStyle(1,0x6b3f1b,0.5); for (let x=4;x<TILE;x+=4){ g.beginPath(); g.moveTo(x, 0); g.lineTo(x + (Math.random()*2-1), TILE); g.strokePath(); }
+  g.fillStyle(0x6b3f1b,0.55); for (let i=0;i<2;i++){ const kx=6+Math.random()*(TILE-12), ky=6+Math.random()*(TILE-12); g.fillCircle(kx, ky, 3+Math.random()*2); }
+  g.lineStyle(2,0x5a3519,1); g.strokeRect(0,0,TILE,TILE); g.generateTexture('tex_tammi',TILE,TILE); g.clear();
+  // Leaves (dappled foliage)
+  g.fillStyle(0x2e8b57,1); g.fillRect(0,0,TILE,TILE);
+  for (let i=0;i<40;i++){ const x=Math.random()*TILE, y=Math.random()*TILE; const col=[0x2f9b5f,0x277b4b,0x38a867][(Math.random()*3)|0]; g.fillStyle(col, 0.55); g.fillCircle(x, y, 2+Math.random()*2); }
+  g.lineStyle(2,0x1d5d3a,1); g.strokeRect(0,0,TILE,TILE); g.generateTexture('tex_leaves',TILE,TILE); g.clear();
   // Tower body (3 tiles, unified) — clean soldier style
   const bodyW = TILE, bodyH = TILE*3;
   // background block
@@ -1024,7 +1061,7 @@ class GameScene extends Phaser.Scene {
       if (heldMs >= 260) this.wizardChargeRelease(pointer); else this.wizardTapFire(pointer);
     });
   this.input.keyboard.on('keydown-C', () => { if (this.started && !this.isPaused) this.craftPlank(); });
-  this.input.keyboard.on('keydown-V', () => { if (this.started && !this.isPaused) this.craftPlank(); });
+  // (V removed to avoid conflict; C crafts planks)
     // Open backpack with E too; if near merchant, E opens merchant as before
     this.input.keyboard.on('keydown-E', () => {
       if (!this.nearMerchant) this.toggleBackpack();
@@ -1224,10 +1261,67 @@ class GameScene extends Phaser.Scene {
 
   // Initially paused until started
     this.pauseGame(true);
+
+  // Item bag UI
+  const btnG = document.getElementById('itemGlider');
+  const btnT = document.getElementById('itemTime');
+  const btnJ = document.getElementById('itemJet');
+  const btnI = document.getElementById('itemInvis');
+  const cool = document.getElementById('itemCooldown');
+  this._refreshItemBagUI = ()=>{
+    try{
+      btnG?.classList.toggle('active', !!this.itemBag.glider);
+      btnJ?.classList.toggle('active', !!this.itemBag.jetpack);
+      btnI?.classList.toggle('active', !!this.itemBag.invis);
+      const left = Math.max(0, (this.itemBag.timeCdUntil||0) - this.time.now);
+      if (cool) {
+        if (left>0) { cool.textContent = `Ajan pysäytin cd: ${(left/1000).toFixed(1)}s`; cool.classList.remove('hidden'); }
+        else { cool.classList.add('hidden'); }
+      }
+    }catch(e){}
+  };
+  btnG?.addEventListener('click', ()=>{ this.itemBag.glider = !this.itemBag.glider; this.showToast(this.itemBag.glider?'Liitosiivet: päällä':'Liitosiivet: pois'); this._refreshItemBagUI(); this.saveState(); });
+  btnI?.addEventListener('click', ()=>{ this.toggleInvisibility(); });
+  btnJ?.addEventListener('click', ()=>{ this.itemBag.jetpack = !this.itemBag.jetpack; this.showToast(this.itemBag.jetpack?'Rakettireppu: päällä':'Rakettireppu: pois'); this._refreshItemBagUI(); this.saveState(); });
+  btnT?.addEventListener('click', ()=>{ this.tryTimeStop(); });
+  // Hotkeys: V start time stop, Å cancels early (if keyboard/layout supports it)
+  this.input.keyboard.on('keydown-V', ()=>{ if (this.started && !this.isPaused) this.tryTimeStop(); });
+  this.input.keyboard.on('keydown-Å', ()=>{ if (this.itemBag?.timeActiveUntil && this.time.now < this.itemBag.timeActiveUntil) { this.cancelTimeStopEarly(); } });
+  this._refreshItemBagUI();
+  // Apply persisted item bag states
+  try { if (this.itemBag?.invis) this.player.setAlpha(0.55); } catch(e) {}
+  if ((this.itemBag?.timeActiveUntil||0) > this.time.now) { this._timeStopped = true; this.applyTimeStopFreeze(true); }
   }
 
   update() {
   if (!this.started || this.isPaused) { this.hookGfx?.clear(); this.vineGfx?.clear(); this.cannonAimGfx?.clear(); return; }
+    // Time Stop upkeep
+    if (this._timeStopped) {
+      if (this.time.now >= (this.itemBag.timeActiveUntil||0)) {
+        this.applyTimeStopFreeze(false);
+        this._timeStopped = false;
+        this._refreshItemBagUI?.();
+      } else {
+        this.bullets?.children?.iterate?.((b)=>{ if(!b||!b.body) return; b.body.velocity.x=0; b.body.velocity.y=0; b.body.allowGravity=false; });
+      }
+    }
+    // Jetpack Down->Up boost detection
+    if (this.itemBag?.jetpack) {
+      const downNow = !!this.cursors?.down?.isDown;
+      const upNow = !!this.cursors?.up?.isDown || !!this.keys?.W?.isDown;
+      // remember down press time
+      if (downNow && !this._jpDownAt) this._jpDownAt = this.time.now;
+      // on up press shortly after down, perform boost if on ground
+      if (upNow && this._jpDownAt && (this.time.now - this._jpDownAt) < 800) {
+        this._jpDownAt = 0;
+        // vertical velocity for ~7 tiles: v = sqrt(2*g*h)
+        const g = this.physics.world.gravity.y || 900; const h = 7*TILE; const v = Math.sqrt(2*g*h);
+        this.player.setVelocityY(-v);
+        try { window.playSfx?.('jump'); } catch(e){}
+      }
+      if (!downNow && !upNow) { /* reset if both released for cleanliness */ }
+      if (!downNow && this._jpDownAt && (this.time.now - this._jpDownAt) >= 800) this._jpDownAt = 0;
+    }
     // Reset merchant hint each frame, will be re-enabled by overlap
     this.nearMerchant = false;
     if (this.merchantPrompt) this.merchantPrompt.setVisible(false);
@@ -1297,11 +1391,13 @@ class GameScene extends Phaser.Scene {
     // Enemy soldier AI
     this.enemySoldiers?.children?.iterate?.((e)=>{
       if (!e || !e.active) return;
+      if (this._timeStopped) { try{ e.setVelocity(0,0); }catch(_){} return; }
       const onGround = e.body?.blocked?.down || e.body?.touching?.down;
       const sx=e.x, sy=e.y; const px=this.player.x, py=this.player.y;
       const dx=px-sx, dy=py-sy; const dist2=dx*dx+dy*dy; const range=22*TILE, range2=range*range;
       // LOS
       let los=false; if (dist2<range2){ const steps=Math.ceil(Math.hypot(dx,dy)/(TILE/3)); los=true; for(let i=1;i<=steps;i++){ const ix=sx+dx*i/steps, iy=sy+dy*i/steps; const tx=Math.floor(ix/TILE), ty=Math.floor(iy/TILE); if (this.hasSolidBlockAt(tx,ty)) { los=false; break; } } }
+      if (this.itemBag?.invis && dist2 > (3*TILE)*(3*TILE)) { los = false; }
       // Mode: perched (gravity off) vs ground
       const mode = e.getData('mode')||'perch';
       if (mode==='perch'){
@@ -1375,10 +1471,13 @@ class GameScene extends Phaser.Scene {
 
     // Wolves AI
     if (this.wolves) {
-      this.wolves.children.iterate(w=>{
+    this.wolves.children.iterate(w=>{
         if (!w || !w.active) return;
+      if (this._timeStopped) { w.setVelocity(0,0); return; }
         const dx = this.player.x - w.x;
         const dir = dx>0?1:-1;
+      const dyAll = this.player.y - w.y; const d2All = dx*dx + dyAll*dyAll;
+      if (this.itemBag?.invis && d2All > (3*TILE)*(3*TILE)) { w.setVelocityX(0); return; }
         w.setVelocityX(dir*120);
         if ((w.body.blocked.left || w.body.blocked.right) && w.body.blocked.down) w.setVelocityY(-250);
         const dy = Math.abs(this.player.y - w.y);
@@ -1411,8 +1510,11 @@ class GameScene extends Phaser.Scene {
     // Oppo AI: hop toward player; if has bounce shoes, jumps higher and kills on touch
     this.oppos?.children?.iterate?.((o)=>{
       if (!o || !o.body) return;
+      if (this._timeStopped) { o.setVelocity(0,0); return; }
       if (o._webbedUntil && this.time.now < o._webbedUntil) { o.setVelocity(0,0); return; } else if (o._webbedUntil && this.time.now >= o._webbedUntil) { o._webbedUntil = 0; }
       const dir = Math.sign(this.player.x - o.x) || (Math.random()<0.5?-1:1);
+      const ddx=this.player.x - o.x, ddy=this.player.y - o.y; const d2=ddx*ddx+ddy*ddy;
+      if (this.itemBag?.invis && d2 > (3*TILE)*(3*TILE)) { o.setVelocityX(0); o.setFlipX(dir<0); return; }
       o.setVelocityX(dir * 110);
       if ((o.body.blocked.down || o.body.touching.down) && (!o._nextHopAt || this.time.now >= o._nextHopAt)) {
         o._nextHopAt = this.time.now + Phaser.Math.Between(600, 1100);
@@ -1689,13 +1791,25 @@ class GameScene extends Phaser.Scene {
     if (this.inWater) {
       this.player.setGravityY(100);
     } else {
+      // Base gravity; glider can override below
       this.player.setGravityY(900);
+    }
+
+    // Glider: hold Down in air to glide (if enabled)
+    if (this.itemBag?.glider) {
+      const onGroundNow = this.player.body.blocked.down || this.player.body.touching.down;
+      const holdingDown = !!(this.cursors?.down?.isDown);
+      if (!onGroundNow && holdingDown && !this.inWater) {
+        this.player.setGravityY(160);
+        if (this.player.body.velocity.y > 120) this.player.setVelocityY(120);
+      }
     }
 
     // Slime AI: simple patrol and hop
   if (this.slimes) {
       this.slimes.children.iterate((sl)=>{
         if (!sl || !sl.body) return;
+        if (this._timeStopped) { sl.setVelocity(0,0); return; }
         if (sl._webbedUntil && this.time.now < sl._webbedUntil) { sl.setVelocity(0,0); return; } else if (sl._webbedUntil && this.time.now >= sl._webbedUntil) { sl._webbedUntil = 0; }
         if (sl.body.blocked.left) { sl.setVelocityX(80); sl.setFlipX(false); }
         else if (sl.body.blocked.right) { sl.setVelocityX(-80); sl.setFlipX(true); }
@@ -2013,6 +2127,48 @@ class GameScene extends Phaser.Scene {
       }
     }
 
+    // Ambient nature sounds (daytime): birds and woodpeckers
+    if (!this.day.isNight) {
+      const nowMs = this.time.now;
+      // Songbirds: every 3–7s, but only if player is near leaves or open sky
+      if (!this._nextBirdAt || nowMs >= this._nextBirdAt) {
+        // Check nearby leaves within ~8x6 tiles area or simply random chance outdoors
+        let nearLeaves = false;
+        const ptx = Math.floor(this.player.x / TILE), pty = Math.floor(this.player.y / TILE);
+        const rx = 8, ry = 6;
+        for (let ox=-rx; ox<=rx && !nearLeaves; ox++) {
+          for (let oy=-ry; oy<=ry; oy++) {
+            const spr = this.blocks.get(`${ptx+ox},${pty+oy}`);
+            if (spr && spr.getData('type')==='leaves') { nearLeaves = true; break; }
+          }
+        }
+        // small chance even without leaves when above ground, to feel alive
+        const outdoors = this.player.y < (SURFACE_Y+1)*TILE;
+        if (nearLeaves || (outdoors && Math.random()<0.25)) {
+          try { window.playSfx?.('bird_chirp'); } catch(e){}
+        }
+        this._nextBirdAt = nowMs + Phaser.Math.Between(3000, 7000);
+      }
+      // Woodpecker: rarer, only when near trunks and during day
+      if (!this._nextPeckerAt || nowMs >= this._nextPeckerAt) {
+        let nearTrunk = false;
+        const ptx = Math.floor(this.player.x / TILE), pty = Math.floor(this.player.y / TILE);
+        for (let ox=-6; ox<=6 && !nearTrunk; ox++) {
+          for (let oy=-5; oy<=5; oy++) {
+            const spr = this.blocks.get(`${ptx+ox},${pty+oy}`);
+            const tp = spr?.getData && spr.getData('type');
+            if (tp==='trunk' || tp==='tammi') { nearTrunk = true; break; }
+          }
+        }
+        if (nearTrunk && Math.random()<0.6) {
+          try { window.playSfx?.('woodpecker'); } catch(e){}
+          // quick follow-up mini-burst to mimic double-roll sometimes
+          if (Math.random()<0.35) this.time.delayedCall(220+Phaser.Math.Between(-40,40), ()=> window.playSfx?.('woodpecker'));
+        }
+        this._nextPeckerAt = nowMs + Phaser.Math.Between(8000, 16000);
+      }
+    }
+
   // Spawn zombies at night in dark areas, not near torches
     if (this.day.isNight && this.time.now >= this._nextZombieSpawnAt) {
       this._nextZombieSpawnAt = this.time.now + 900; // every 0.9s check
@@ -2050,8 +2206,11 @@ class GameScene extends Phaser.Scene {
     if (this.zombies) {
       this.zombies.children.iterate((z)=>{
         if (!z || !z.body) return;
+        if (this._timeStopped) { z.setVelocity(0,0); return; }
         if (z._webbedUntil && this.time.now < z._webbedUntil) { z.setVelocity(0,0); return; } else if (z._webbedUntil && this.time.now >= z._webbedUntil) { z._webbedUntil = 0; }
         const dx = this.player.x - z.x;
+        const dy = this.player.y - z.y; const d2 = dx*dx+dy*dy;
+        if (this.itemBag?.invis && d2 > (3*TILE)*(3*TILE)) { z.setVelocityX(0); return; }
         const dir = Math.sign(dx) || 1;
         z.setVelocityX(dir * 80);
         if ((z.body.blocked.down || z.body.touching.down) && Math.random() < 0.01) z.setVelocityY(-340);
@@ -2149,6 +2308,50 @@ class GameScene extends Phaser.Scene {
       this.ninja.striking = false; this.ninjaStrikeOff(); this.showToast('Ninja-tila pois');
     }
     this.updateInventoryUI(); this.saveState();
+  }
+
+  // --- Item bag abilities ---
+  tryTimeStop(){
+    const now = this.time.now;
+    if ((this.itemBag.timeCdUntil||0) > now) { this.showToast?.('Ajan pysäytin latautuu...'); return false; }
+    const dur = 3000; const cd = 15000;
+    this.itemBag.timeActiveUntil = now + dur;
+    this.itemBag.timeCdUntil = now + cd;
+    this._timeStopped = true;
+    this._refreshItemBagUI?.();
+    this.applyTimeStopFreeze(true);
+    this.showToast?.('Aika pysähtyi! (Å peruu)');
+    this.saveState();
+    this.time.delayedCall(dur+50, ()=>{ if (this._timeStopped) { this.applyTimeStopFreeze(false); this._timeStopped=false; this._refreshItemBagUI?.(); } });
+    return true;
+  }
+  cancelTimeStopEarly(){
+    if (!this._timeStopped) return;
+    this.applyTimeStopFreeze(false);
+    this._timeStopped = false;
+    this.itemBag.timeActiveUntil = 0;
+    this._refreshItemBagUI?.();
+  }
+  applyTimeStopFreeze(on){
+    this._timeStopped = !!on;
+    const zero = (e)=>{ try{ e.body && (e.body.velocity.x=0, e.body.velocity.y=0); }catch(_){} };
+    if (on) {
+      this.slimes?.children?.iterate?.(zero);
+      this.birds?.children?.iterate?.(zero);
+      this.zombies?.children?.iterate?.(zero);
+      this.oppos?.children?.iterate?.(zero);
+      this.enemySoldiers?.children?.iterate?.(zero);
+      this.bosses?.children?.iterate?.(zero);
+      this.bullets?.children?.iterate?.((b)=>{ if(!b||!b.body) return; b.body.velocity.x=0; b.body.velocity.y=0; b.body.allowGravity=false; });
+    }
+  }
+  toggleInvisibility(){
+    this.itemBag.invis = !this.itemBag.invis;
+    // Visual alpha
+    this.player.setAlpha(this.itemBag.invis ? 0.55 : 1);
+    this.showToast(this.itemBag.invis ? 'Näkymättömyys: päällä' : 'Näkymättömyys: pois');
+    this._refreshItemBagUI?.();
+    this.saveState();
   }
   ninjaSwordSlash(pointer){
     if (this._ninjaSlashCd && this._ninjaSlashCd > this.time.now) return; this._ninjaSlashCd = this.time.now + 220;
@@ -4572,12 +4775,21 @@ class GameScene extends Phaser.Scene {
     const y = ty * TILE + TILE/2;
     let sprite;
     if (collides) {
-      sprite = this.platforms.create(x, y, textureKey);
+  // Auto-use grass variant for surface natural ground only
+  const key = (type === 'ground' && textureKey === 'tex_ground' && ty === SURFACE_Y) ? 'tex_ground_grass' : textureKey;
+      sprite = this.platforms.create(x, y, key);
       sprite.refreshBody();
       sprite.setData('type', type);
   const k = this.keyFromTile(tx, ty);
   this.blocks.set(k, sprite);
   if (type === 'cactus') this.cactusTiles.add(k);
+      // Tiny per-tile tint variation to break repetition (±4%)
+      const jitter = 0x08; // low jitter on each RGB channel
+      const r = 0xf0 + Math.floor(Math.random()*jitter) - (jitter>>1);
+      const g = 0xf0 + Math.floor(Math.random()*jitter) - (jitter>>1);
+      const b = 0xf0 + Math.floor(Math.random()*jitter) - (jitter>>1);
+      const tint = (Math.max(0,Math.min(255,r))<<16) | (Math.max(0,Math.min(255,g))<<8) | Math.max(0,Math.min(255,b));
+      sprite.setTint(tint);
       if (this.currentChunk!=null) this.chunks.get(this.currentChunk)?.blocks.add(k);
     } else {
       sprite = this.add.image(x, y, textureKey);
@@ -5430,7 +5642,7 @@ class GameScene extends Phaser.Scene {
   }
 
   saveState(){
-  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, bounceShoes: this.state.bounceShoes, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, soldierCloners: this.soldierClonerPositions, tankCloners: this.tankClonerPositions, torches: this.torchPositions, mines: this.minePositions, rods: this.rodPositions, towers: this.towerPositions, traps: this.trapPositions, weather: this.weather, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic', upgrades: this.upgrades, hunger: this.hunger, food: this.food };
+  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, bounceShoes: this.state.bounceShoes, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, soldierCloners: this.soldierClonerPositions, tankCloners: this.tankClonerPositions, torches: this.torchPositions, mines: this.minePositions, rods: this.rodPositions, towers: this.towerPositions, traps: this.trapPositions, weather: this.weather, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic', upgrades: this.upgrades, hunger: this.hunger, food: this.food, itemBag: this.itemBag };
     try {
       const wid = window.localStorage.getItem('UAG_worldCurrent') || 'world-1';
       localStorage.setItem(`UAG_save_${wid}`, JSON.stringify(data));
@@ -5494,6 +5706,13 @@ class GameScene extends Phaser.Scene {
   if (d.upgrades) this.upgrades = d.upgrades;
   if (d.hunger) { this.hunger.value = Math.max(0, Math.min(d.hunger.value||0, this.hunger.max)); }
   if (d.food) { this.food.meat = d.food.meat||0; }
+  if (d.itemBag) {
+    this.itemBag.glider = !!d.itemBag.glider;
+    this.itemBag.jetpack = !!d.itemBag.jetpack;
+    this.itemBag.invis = !!d.itemBag.invis;
+    this.itemBag.timeCdUntil = d.itemBag.timeCdUntil||0;
+    this.itemBag.timeActiveUntil = d.itemBag.timeActiveUntil||0;
+  }
   // Ensure pistol, cannon, minigun, knife, sniper & bazooka exist for older saves
   if (!this.tools.owned?.pistol) this.tools.owned.pistol = true;
   if (!this.tools.owned?.cannon) this.tools.owned.cannon = true;

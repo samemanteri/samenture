@@ -83,6 +83,8 @@
     freqs.forEach((f,i)=>{ osc(type, f, dur*(1- i*0.1)); });
   }
   function midi(n){ return 440 * Math.pow(2, (n-69)/12); }
+  // Helper: schedule delayed function using AudioContext time for consistency
+  function at(delayMs, fn){ setTimeout(fn, Math.max(0, delayMs||0)); }
 
   const Sfx = {
     setVolume(v){ Ctx.gain = Math.max(0, Math.min(1, v)); if (Ctx.master) Ctx.master.gain.value = Ctx.gain; },
@@ -108,6 +110,28 @@
         case 'hit': (noise(0.08,{type:'bandpass',freq:900,q:0.7}), osc('square', 220, 0.06)); break;
         case 'death': pitchSlide('triangle', 800, 100, 0.6, [0.004,0.2,0.2,0.4]); break;
         case 'spawn': pitchSlide('triangle', 500, 900, 0.24); break;
+        // Ambient: small songbird chirp (2 quick up-slides)
+        case 'bird_chirp': {
+          const base = 2500 + Math.random()*600; // Hz
+          const up = 1.18 + Math.random()*0.08;
+          const env = [0.002, 0.04, 0.15, 0.05];
+          pitchSlide('triangle', base, base*up, 0.08, env);
+          at(90, ()=> pitchSlide('triangle', base*0.92, base*up*0.95, 0.09, env));
+          break;
+        }
+        // Ambient: woodpecker tapping burst
+        case 'woodpecker': {
+          const taps = 6 + (Math.random()*6|0);
+          const interval = 28 + Math.random()*14; // ms between taps
+          for (let i=0;i<taps;i++){
+            at(i*interval, ()=>{
+              // percussive tick: bandpass noise + short square click
+              noise(0.021, { type:'bandpass', freq: 1700+Math.random()*400, q: 1.6 });
+              osc('square', 950+Math.random()*120, 0.018, [0.0015, 0.02, 0.1, 0.03]);
+            });
+          }
+          break;
+        }
         default: break;
       }
     }
