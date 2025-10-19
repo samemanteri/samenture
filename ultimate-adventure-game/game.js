@@ -1305,21 +1305,26 @@ class GameScene extends Phaser.Scene {
         this.bullets?.children?.iterate?.((b)=>{ if(!b||!b.body) return; b.body.velocity.x=0; b.body.velocity.y=0; b.body.allowGravity=false; });
       }
     }
-    // Jetpack Down->Up boost detection
+    // Jetpack boost: Up-alone (airborne) or Down->Up quick combo
     if (this.itemBag?.jetpack) {
       const downNow = !!this.cursors?.down?.isDown;
       const upNow = !!this.cursors?.up?.isDown || !!this.keys?.W?.isDown;
-      // remember down press time
-      if (downNow && !this._jpDownAt) this._jpDownAt = this.time.now;
-      // on up press shortly after down, perform boost if on ground
-      if (upNow && this._jpDownAt && (this.time.now - this._jpDownAt) < 800) {
-        this._jpDownAt = 0;
-        // vertical velocity for ~7 tiles: v = sqrt(2*g*h)
+      const upJust = Phaser.Input.Keyboard.JustDown?.(this.cursors?.up) || Phaser.Input.Keyboard.JustDown?.(this.keys?.W);
+      const onGroundNow = !!(this.player.body?.blocked?.down || this.player.body?.touching?.down);
+      const doBoost = ()=>{
         const g = this.physics.world.gravity.y || 900; const h = 7*TILE; const v = Math.sqrt(2*g*h);
         this.player.setVelocityY(-v);
+        this._jpDownAt = 0;
+        this._jpNextAt = this.time.now + 700; // small cooldown to avoid spam
         try { window.playSfx?.('jump'); } catch(e){}
-      }
-      if (!downNow && !upNow) { /* reset if both released for cleanliness */ }
+      };
+      let boosted = false;
+      // Up-alone while airborne (on cooldown)
+      if (upJust && !onGroundNow && (!this._jpNextAt || this.time.now >= this._jpNextAt)) { doBoost(); boosted = true; }
+      // Combo: on up press shortly after down
+      if (!boosted && upNow && this._jpDownAt && (this.time.now - this._jpDownAt) < 800) { doBoost(); boosted = true; }
+      // Bookkeeping
+      if (downNow && !this._jpDownAt) this._jpDownAt = this.time.now;
       if (!downNow && this._jpDownAt && (this.time.now - this._jpDownAt) >= 800) this._jpDownAt = 0;
     }
     // Reset merchant hint each frame, will be re-enabled by overlap
