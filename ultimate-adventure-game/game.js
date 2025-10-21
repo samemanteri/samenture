@@ -55,8 +55,9 @@ class GameScene extends Phaser.Scene {
 
     // Tool system
     this.tools = {
-  owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, bow: true, cannon: true, minigun: true, ak47: true, knife: true, spear: true, sniper: true, rifle: true, bazooka: true, grenade: true, nuke: true, plane: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true, wizard: true, flame: true, pamppu: true, mine: true, rod: true, tower: true, trap: true,
-           pistol_copper: false, bow_copper: false, minigun_copper: false, ak47_copper: false, knife_copper: false, sniper_copper: false, bazooka_copper: false, grenade_copper: false, nuke_copper: false, pamppu_copper: false, plane_copper: false },
+          owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, bow: true, crossbow: true, cannon: true, minigun: true, ak47: true, knife: true, spear: true, sniper: true, rifle: true, bazooka: true, grenade: true, nuke: true, plane: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true, wizard: true, flame: true, pamppu: true, mine: true, rod: true, tower: true, trap: true,
+            lamp: true, sofa: true,
+           pistol_copper: false, bow_copper: false, crossbow_copper: false, minigun_copper: false, ak47_copper: false, knife_copper: false, sniper_copper: false, bazooka_copper: false, grenade_copper: false, nuke_copper: false, pamppu_copper: false, plane_copper: false },
       equipped: 'pistol',
       cannonMode: 'minigun' // 'minigun' | 'sniper'
     };
@@ -136,13 +137,20 @@ class GameScene extends Phaser.Scene {
   // Ambient SFX cadence
   this._nextBirdAt = 0;
   this._nextPeckerAt = 0;
-  // Item bag: glider, jetpack, invisibility
-  this.itemBag = { glider: false, jetpack: false, invis: false, timeCdUntil: 0, timeActiveUntil: 0 };
+  // Item bag: glider, jetpack, invisibility, speed, shield, decoy
+  this.itemBag = { glider: false, jetpack: false, invis: false, speedUntil: 0, shieldUntil: 0, decoyUntil: 0, timeCdUntil: 0, timeActiveUntil: 0 };
   this._timeStopped = false; // deprecated, kept for migration safety
 
   // Torches (light sources) prevent zombie spawns nearby
   this.torchPositions = [];
   this.torches = new Map(); // key -> { image }
+  // Perch spots for birds (generated with tree branches)
+  this.perchSpots = [];
+  this.branches = new Map(); // anchorKey -> Array<{dir:number, segments:Array<{tx,ty,img}>}>
+  // Furniture (decorative)
+  this.lampPositions = []; this.lamps = new Map(); // key -> { image }
+  this.sofaPositions = []; this.sofas = new Map(); // key -> { image }
+  this.tablePositions = []; this.tables = new Map(); // key -> { image }
 
   // Day/Night cycle and darkness overlay
   this.day = { period: 120000, start: 0, isNight: false, lastIsNight: false }; // 120s per full day
@@ -211,7 +219,7 @@ class GameScene extends Phaser.Scene {
     g.lineStyle(2, 0x553018, 1); g.strokeRect(0, 0, TILE, TILE);
     g.generateTexture('tex_ground', TILE, TILE); g.clear();
 
-    // Ground with grass top for surface tiles
+  // Ground with grass top for surface tiles
     const GH = Math.max(6, Math.floor(TILE*0.28));
     g.fillStyle(0x7d4f26, 1); g.fillRect(0, 0, TILE, TILE);
     for (let i=0;i<40;i++){ const x=Math.random()*TILE, y=GH + Math.random()*(TILE-GH); const c=Math.random()<0.5?0x6b3a1b:0x996237; g.fillStyle(c, 0.35); g.fillRect(x, y, 2, 2); }
@@ -223,7 +231,20 @@ class GameScene extends Phaser.Scene {
     // darker grass shadows
     g.fillStyle(0x237823, 0.3); for (let i=0;i<8;i++){ const w=4+Math.random()*8; const x=Math.random()*(TILE-w); g.fillRect(x, GH-2, w, 2); }
     g.lineStyle(2, 0x553018, 1); g.strokeRect(0, 0, TILE, TILE);
-    g.generateTexture('tex_ground_grass', TILE, TILE); g.clear();
+  g.generateTexture('tex_ground_grass', TILE, TILE); g.clear();
+
+  // Snow base and snow-with-top textures (for snow biome)
+  // Base snow: light blue-white with subtle noise specks
+  g.fillStyle(0xeaf7ff, 1); g.fillRect(0, 0, TILE, TILE);
+  g.fillStyle(0xdaf0ff, 0.6);
+  for (let i=0;i<8;i++) { const x = (Math.random()*TILE)|0; const y = (Math.random()*TILE)|0; g.fillRect(x, y, 1, 1); }
+  g.generateTexture('tex_snow', TILE, TILE); g.clear();
+  // Snow top: draw a thicker brighter cap at the top few pixels
+  g.fillStyle(0xeaf7ff, 1); g.fillRect(0, 0, TILE, TILE);
+  g.fillStyle(0xffffff, 1); g.fillRect(0, 0, TILE, 5);
+  g.fillStyle(0xdaf0ff, 0.8);
+  for (let i=0;i<10;i++) { const x = (Math.random()*TILE)|0; const y = 1 + ((Math.random()*4)|0); g.fillRect(x, y, 1, 1); }
+  g.generateTexture('tex_snow_top', TILE, TILE); g.clear();
 
     // Stone with grain, speckles, and cracks
     g.fillStyle(0x8a8f93, 1); g.fillRect(0, 0, TILE, TILE);
@@ -253,6 +274,26 @@ class GameScene extends Phaser.Scene {
     for (let y=4;y<TILE;y+=4){ const shade = [0xB78E4F,0xD8B069,0xA27E44][(Math.random()*3)|0]; g.fillStyle(shade, 0.45); g.fillRect(0, y-1 + Math.random()*1, TILE, 2); }
     g.lineStyle(2, 0xA27E44, 1); g.strokeRect(0, 0, TILE, TILE);
     g.generateTexture('tex_sandstone', TILE, TILE); g.clear();
+
+    // Plank (wood) with slats and grain
+    g.fillStyle(0x8b5a2b, 1); g.fillRect(0, 0, TILE, TILE);
+    // vertical plank lines
+    g.lineStyle(1, 0x6b3a1b, 0.9);
+    const planks = 3 + ((Math.random()*2)|0); // 3-4 planks across a tile
+    for (let i=1;i<planks;i++){
+      const x = Math.floor(i * TILE / planks);
+      g.beginPath(); g.moveTo(x, 0); g.lineTo(x, TILE); g.strokePath();
+    }
+    // subtle grain/knots
+    g.fillStyle(0x9c6b38, 0.25);
+    for (let i=0;i<10;i++){
+      const x = Math.random()*TILE, y = Math.random()*TILE;
+      const w = 2+Math.random()*3, h = 1+Math.random()*2;
+      g.fillRect(x, y, w, h);
+    }
+    // border
+    g.lineStyle(2, 0x4a2a12, 1); g.strokeRect(0, 0, TILE, TILE);
+    g.generateTexture('tex_plank', TILE, TILE); g.clear();
 
   // Player base texture (keep plain, no border)
   const pw = 28, ph = 36;
@@ -315,6 +356,15 @@ class GameScene extends Phaser.Scene {
   g.lineStyle(1,0x6b3f1b,0.5); for (let x=4;x<TILE;x+=4){ g.beginPath(); g.moveTo(x, 0); g.lineTo(x + (Math.random()*2-1), TILE); g.strokePath(); }
   g.fillStyle(0x6b3f1b,0.55); for (let i=0;i<2;i++){ const kx=6+Math.random()*(TILE-12), ky=6+Math.random()*(TILE-12); g.fillCircle(kx, ky, 3+Math.random()*2); }
   g.lineStyle(2,0x5a3519,1); g.strokeRect(0,0,TILE,TILE); g.generateTexture('tex_tammi',TILE,TILE); g.clear();
+  // Birch (koivu) trunk variant: white bark with black patches
+  g.fillStyle(0xf2f2f2,1); g.fillRect(0,0,TILE,TILE);
+  // subtle horizontal bands
+  g.lineStyle(1,0xe6e6e6,0.6);
+  for (let y=3; y<TILE; y+=5) { g.beginPath(); g.moveTo(0, y + (Math.random()*1.2-0.6)); g.lineTo(TILE, y + (Math.random()*1.2-0.6)); g.strokePath(); }
+  // black patches/eyes
+  g.fillStyle(0x2b2b2b, 0.75);
+  for (let i=0;i<3;i++){ const px=4+Math.random()*(TILE-8), py=4+Math.random()*(TILE-8); g.fillEllipse(px, py, 5+Math.random()*3, 2+Math.random()*2); }
+  g.lineStyle(2,0xbfbfbf,1); g.strokeRect(0,0,TILE,TILE); g.generateTexture('tex_koivu',TILE,TILE); g.clear();
   // Leaves (dappled foliage)
   g.fillStyle(0x2e8b57,1); g.fillRect(0,0,TILE,TILE);
   for (let i=0;i<40;i++){ const x=Math.random()*TILE, y=Math.random()*TILE; const col=[0x2f9b5f,0x277b4b,0x38a867][(Math.random()*3)|0]; g.fillStyle(col, 0.55); g.fillCircle(x, y, 2+Math.random()*2); }
@@ -464,6 +514,37 @@ class GameScene extends Phaser.Scene {
   g.lineStyle(2,0x6b3a1b,1); g.strokeRect(TILE/2-2, TILE-18, 4, 16);
   g.generateTexture('tex_torch', TILE, TILE); g.clear();
 
+  // Branch texture (simple wooden branch)
+  g.fillStyle(0x7a4f2b, 1.0);
+  g.fillRect(TILE*0.05, TILE*0.45, TILE*0.9, TILE*0.08);
+  g.fillStyle(0x5c3a1f, 1.0);
+  g.fillRect(TILE*0.65, TILE*0.35, TILE*0.25, TILE*0.06);
+  g.generateTexture('tex_branch', TILE, TILE); g.clear();
+
+  // Lamp texture (floor lamp): base + pole + shade glow
+  g.fillStyle(0x444444, 1.0);
+  g.fillRect(TILE*0.40, TILE*0.8, TILE*0.2, TILE*0.1); // base
+  g.fillStyle(0x777777, 1.0);
+  g.fillRect(TILE*0.485, TILE*0.25, TILE*0.03, TILE*0.55); // pole
+  g.fillStyle(0xfff1b0, 1.0);
+  g.fillTriangle(TILE*0.35, TILE*0.28, TILE*0.65, TILE*0.28, TILE*0.5, TILE*0.18); // shade
+  g.generateTexture('tex_lamp', TILE, TILE); g.clear();
+
+  // Sofa texture (two-seat)
+  g.fillStyle(0x5a2d2d, 1.0); g.fillRect(TILE*0.1, TILE*0.55, TILE*0.8, TILE*0.35); // seat
+  g.fillStyle(0x7a3d3d, 1.0); g.fillRect(TILE*0.1, TILE*0.35, TILE*0.8, TILE*0.25); // back
+  g.fillStyle(0x4a1d1d, 1.0); g.fillRect(TILE*0.08, TILE*0.45, TILE*0.06, TILE*0.35); // arm left
+  g.fillRect(TILE*0.86, TILE*0.45, TILE*0.06, TILE*0.35); // arm right
+  g.generateTexture('tex_sofa', TILE, TILE); g.clear();
+
+  // Table texture (top + legs)
+  g.fillStyle(0x8b5a2b, 1.0); g.fillRect(TILE*0.08, TILE*0.45, TILE*0.84, TILE*0.12); // top
+  g.fillStyle(0x6b3a1b, 1.0);
+  g.fillRect(TILE*0.12, TILE*0.57, TILE*0.06, TILE*0.25); // leg 1
+  g.fillRect(TILE*0.82, TILE*0.57, TILE*0.06, TILE*0.25); // leg 2
+  g.fillRect(TILE*0.47, TILE*0.57, TILE*0.06, TILE*0.25); // center leg
+  g.generateTexture('tex_table', TILE, TILE); g.clear();
+
   // Zombie texture (2-tile tall rectangle with face)
   const zw = Math.floor(TILE*0.7), zh = TILE*2 - 2;
   g.fillStyle(0x557755,1); g.fillRect(0,0,zw,zh); g.lineStyle(2,0x2a442a,1); g.strokeRect(0,0,zw,zh);
@@ -599,6 +680,14 @@ class GameScene extends Phaser.Scene {
   g.fillStyle(0x222222,1); g.fillRect(23,5,2,2); // eye
   g.fillStyle(0x555555,1); for(let i=0;i<4;i++){ g.fillRect(4+i*5,16,4,4);} // legs
   g.generateTexture('tex_wolf',30,20); g.clear();
+  // Fox texture (orange body, white chest, dark legs)
+  g.fillStyle(0xd97a1d,1); g.fillRect(0,6,26,10); // body
+  g.fillStyle(0xe08a34,1); g.fillRect(16,2,10,8); // head
+  g.fillStyle(0xffffff,1); g.fillRect(2,10,8,4); // chest
+  g.fillStyle(0x111111,1); for(let i=0;i<4;i++){ g.fillRect(3+i*5,16,4,4);} // legs
+  g.fillStyle(0xffffff,1); g.fillRect(24,8,6,4); // tail tip
+  g.fillStyle(0x111111,1); g.fillRect(21,5,2,2); // eye
+  g.generateTexture('tex_fox',30,20); g.clear();
   // Flame particle
   g.fillStyle(0xff9933,0.9); g.fillCircle(4,4,4); g.fillStyle(0xffcc66,0.8); g.fillCircle(3,3,2.4);
   g.generateTexture('tex_flame',8,8); g.clear();
@@ -617,6 +706,11 @@ class GameScene extends Phaser.Scene {
   g.fillStyle(0xffffff,1); g.fillRect(10,2,2,4); // tip
   g.fillStyle(0xbfbfbf,1); g.fillRect(0,2,2,4); // fletching block
   g.generateTexture('tex_arrow',12,8); g.clear();
+  // Crossbow bolt projectile (shorter, heavier tip)
+  g.fillStyle(0x6b4520,1); g.fillRect(0,3,8,2); // shaft
+  g.fillStyle(0xffffff,1); g.fillRect(8,2,3,4); // broadhead tip
+  g.fillStyle(0x9f9f9f,1); g.fillRect(0,2,2,4); // small fletch
+  g.generateTexture('tex_bolt',11,8); g.clear();
   // Bow weapon sprite (draw arc path for the bow limb)
   g.lineStyle(2,0x8b5a2b,1);
   g.beginPath();
@@ -625,6 +719,13 @@ class GameScene extends Phaser.Scene {
   // string
   g.fillStyle(0xffffff,1); g.fillRect(1,3,10,2);
   g.generateTexture('tex_weapon_bow',14,8); g.clear();
+  // Crossbow weapon sprite (stock + limbs)
+  g.fillStyle(0x7b5228,1); g.fillRect(0,3,12,4); // stock
+  g.fillStyle(0x915f2f,1); g.fillRect(2,2,8,2); // rail top
+  g.fillStyle(0x333333,1); g.fillRect(11,2,3,6); // limbs mount
+  g.fillStyle(0x333333,1); g.fillRect(12,1,2,2); g.fillRect(12,7,2,2); // limbs
+  g.fillStyle(0xffffff,1); g.fillRect(1,4,10,1); // string
+  g.generateTexture('tex_weapon_crossbow',16,10); g.clear();
   // Mine red dot
   g.fillStyle(0xff2222,1); g.fillCircle(4,4,3.2); g.lineStyle(1,0xaa0000,1); g.strokeCircle(4,4,3.2);
   g.generateTexture('tex_mine',8,8); g.clear();
@@ -758,6 +859,12 @@ class GameScene extends Phaser.Scene {
   g.fillStyle(0x000000,1); g.fillRect(24,5,2,2);
   g.fillStyle(0x5a4632,1); g.fillRect(6,18,4,4); g.fillRect(16,18,4,4);
   g.generateTexture('tex_cow',32,22); g.clear();
+  // Polar bear (snow biome animal)
+  g.fillStyle(0xf8fbff,1); g.fillRect(0,6,28,12);
+  g.fillStyle(0xe7f3ff,1); g.fillRect(18,4,10,8);
+  g.fillStyle(0x000000,1); g.fillRect(24,7,2,2);
+  g.fillStyle(0xddeaf7,1); g.fillRect(6,18,5,4); g.fillRect(16,18,5,4);
+  g.generateTexture('tex_polarbear',32,22); g.clear();
   // Meat item
   g.fillStyle(0xaa3b2f,1); g.fillRect(2,2,12,8); g.fillStyle(0xffcbbd,1); g.fillRect(12,3,2,6); g.generateTexture('tex_meat',16,12); g.clear();
   
@@ -827,7 +934,14 @@ class GameScene extends Phaser.Scene {
     this.physics.add.collider(this.bullets, this.platforms, this.onBulletHit, null, this);
     this.physics.add.overlap(this.player, this.pickups, this.onPickup, null, this);
     this.physics.add.overlap(this.player, this.waters, this.onEnterWater, null, this);
-    this.physics.add.overlap(this.player, this.items, this.onItemPickup, null, this);
+    // Guard item overlap so already-picked/disabled items don't re-trigger during the same step
+    this.physics.add.overlap(
+      this.player,
+      this.items,
+      this.onItemPickup,
+      (player, item)=> !!item && item.active && !item.getData('_picked'),
+      this
+    );
   this.physics.add.overlap(this.player, this.birds, this.onBirdHit, null, this);
     this.physics.add.overlap(this.player, this.slimes, this.onSlimeHit, null, this);
   this.physics.add.overlap(this.player, this.zombies, (p,z)=>{ this._hitByEnemy(z); }, null, this);
@@ -956,7 +1070,7 @@ class GameScene extends Phaser.Scene {
           this.placeBlueprintAtTiles(tx,ty);
           return;
         }
-        if (this.tools.equipped === 'cannon') this.placeCannon(pointer);
+    if (this.tools.equipped === 'cannon') this.placeCannon(pointer);
         else if (this.tools.equipped === 'teleport') this.placePortal(pointer);
         else if (this.tools.equipped === 'slimecloner') this.placeSlimeCloner(pointer);
   else if (this.tools.equipped === 'soldiercloner') this.placeSoldierCloner(pointer);
@@ -966,6 +1080,9 @@ class GameScene extends Phaser.Scene {
   else if (this.tools.equipped === 'trap') this.placeTrap(pointer);
         else if (this.tools.equipped === 'mine') this.placeMine(pointer);
         else if (this.tools.equipped === 'rod') this.placeRod(pointer);
+    else if (this.tools.equipped === 'lamp') this.placeLamp(pointer);
+    else if (this.tools.equipped === 'sofa') this.placeSofa(pointer);
+    else if (this.tools.equipped === 'table') this.placeTable(pointer);
         else if (this.tools.equipped === 'cloner') this.cycleCloneTarget();
         else this.placePlank(pointer);
       } else {
@@ -981,6 +1098,9 @@ class GameScene extends Phaser.Scene {
           else if (this.tools.equipped === 'cloner') this.spawnClone(pointer);
           else if (this.tools.equipped === 'mine') this.placeMine(pointer);
           else if (this.tools.equipped === 'rod') this.placeRod(pointer);
+          else if (this.tools.equipped === 'lamp') this.placeLamp(pointer);
+          else if (this.tools.equipped === 'sofa') this.placeSofa(pointer);
+          else if (this.tools.equipped === 'table') this.placeTable(pointer);
           else this.placePlank(pointer);
         }
         else {
@@ -1033,6 +1153,12 @@ class GameScene extends Phaser.Scene {
             this.removeTrapAtPointer(pointer);
           } else if (this.tools.equipped === 'rod') {
             this.removeRodAtPointer(pointer);
+          } else if (this.tools.equipped === 'lamp') {
+            this.removeLampAtPointer(pointer);
+          } else if (this.tools.equipped === 'sofa') {
+            this.removeSofaAtPointer(pointer);
+          } else if (this.tools.equipped === 'table') {
+            this.removeTableAtPointer(pointer);
           } else if (this.tools.equipped === 'cloner') {
             this.spawnClone(pointer);
           } else {
@@ -1267,12 +1393,19 @@ class GameScene extends Phaser.Scene {
   const btnT = document.getElementById('itemTime');
   const btnJ = document.getElementById('itemJet');
   const btnI = document.getElementById('itemInvis');
+  const btnS = document.getElementById('itemSpeed');
+  const btnSh = document.getElementById('itemShield');
+  const btnD = document.getElementById('itemDecoy');
+  const btnH = document.getElementById('itemHouse');
   const cool = document.getElementById('itemCooldown');
   this._refreshItemBagUI = ()=>{
     try{
       btnG?.classList.toggle('active', !!this.itemBag.glider);
       btnJ?.classList.toggle('active', !!this.itemBag.jetpack);
       btnI?.classList.toggle('active', !!this.itemBag.invis);
+      btnS?.classList.toggle('active', (this.itemBag.speedUntil||0) > this.time.now);
+      btnSh?.classList.toggle('active', (this.itemBag.shieldUntil||0) > this.time.now);
+      btnD?.classList.toggle('active', (this.itemBag.decoyUntil||0) > this.time.now);
       const left = Math.max(0, (this.itemBag.timeCdUntil||0) - this.time.now);
       if (cool) {
         if (left>0) { cool.textContent = `Ajan pysäytin cd: ${(left/1000).toFixed(1)}s`; cool.classList.remove('hidden'); }
@@ -1284,6 +1417,10 @@ class GameScene extends Phaser.Scene {
   btnI?.addEventListener('click', ()=>{ this.toggleInvisibility(); });
   btnJ?.addEventListener('click', ()=>{ this.itemBag.jetpack = !this.itemBag.jetpack; this.showToast(this.itemBag.jetpack?'Rakettireppu: päällä':'Rakettireppu: pois'); this._refreshItemBagUI(); this.saveState(); });
   btnT?.addEventListener('click', ()=>{ this.tryTimeStop(); });
+  btnS?.addEventListener('click', ()=>{ this.activateSpeedBoost(); });
+  btnSh?.addEventListener('click', ()=>{ this.activateShield(); });
+  btnD?.addEventListener('click', ()=>{ this.deployDecoy(); });
+  btnH?.addEventListener('click', ()=>{ this.buildHouseNearPlayer(); });
   // Hotkeys: V start time stop, Å cancels early (if keyboard/layout supports it)
   this.input.keyboard.on('keydown-V', ()=>{ if (this.started && !this.isPaused) this.tryTimeStop(); });
   this.input.keyboard.on('keydown-Å', ()=>{ if (this.itemBag?.timeActiveUntil && this.time.now < this.itemBag.timeActiveUntil) { this.cancelTimeStopEarly(); } });
@@ -1308,8 +1445,12 @@ class GameScene extends Phaser.Scene {
     // Jetpack boost: Up-alone (airborne) or Down->Up quick combo
     if (this.itemBag?.jetpack) {
       const downNow = !!this.cursors?.down?.isDown;
-      const upNow = !!this.cursors?.up?.isDown || !!this.keys?.W?.isDown;
-      const upJust = Phaser.Input.Keyboard.JustDown?.(this.cursors?.up) || Phaser.Input.Keyboard.JustDown?.(this.keys?.W);
+      const upNow = !!this.cursors?.up?.isDown || !!this.keys?.W?.isDown || !!this.touchState?.jump;
+      // Detect just-pressed for keyboard and touch jump
+      const kbUpJust = Phaser.Input.Keyboard.JustDown?.(this.cursors?.up) || Phaser.Input.Keyboard.JustDown?.(this.keys?.W);
+      const touchJumpNow = !!this.touchState?.jump;
+      const touchUpJust = (!this._jumpPrev) && touchJumpNow;
+      const upJust = kbUpJust || touchUpJust;
       const onGroundNow = !!(this.player.body?.blocked?.down || this.player.body?.touching?.down);
       const doBoost = ()=>{
         const g = this.physics.world.gravity.y || 900; const h = 7*TILE; const v = Math.sqrt(2*g*h);
@@ -1326,7 +1467,17 @@ class GameScene extends Phaser.Scene {
       // Bookkeeping
       if (downNow && !this._jpDownAt) this._jpDownAt = this.time.now;
       if (!downNow && this._jpDownAt && (this.time.now - this._jpDownAt) >= 800) this._jpDownAt = 0;
+      this._jumpPrev = touchJumpNow;
     }
+
+  // Speed boost effect flag (applied to movement later)
+  const speedActive = (this.itemBag.speedUntil||0) > this.time.now;
+
+    // Shield effect: visual and damage gate
+    const shieldActive = (this.itemBag.shieldUntil||0) > this.time.now;
+    if (shieldActive) { if (!this._shieldFx) { this._shieldFx = this.add.graphics().setDepth(7); }
+      const g=this._shieldFx; g.clear(); g.lineStyle(3,0x55ddff,0.9); g.strokeCircle(this.player.x, this.player.y, 26);
+    } else if (this._shieldFx) { this._shieldFx.clear(); }
     // Reset merchant hint each frame, will be re-enabled by overlap
     this.nearMerchant = false;
     if (this.merchantPrompt) this.merchantPrompt.setVisible(false);
@@ -1398,11 +1549,18 @@ class GameScene extends Phaser.Scene {
       if (!e || !e.active) return;
       if (this._timeStopped) { try{ e.setVelocity(0,0); }catch(_){} return; }
       const onGround = e.body?.blocked?.down || e.body?.touching?.down;
-      const sx=e.x, sy=e.y; const px=this.player.x, py=this.player.y;
-      const dx=px-sx, dy=py-sy; const dist2=dx*dx+dy*dy; const range=22*TILE, range2=range*range;
+      const sx=e.x, sy=e.y;
+      // choose target: player or decoy if taunted
+      const taunted = !!(e._tauntUntil && this.time.now < e._tauntUntil && this._decoyPos);
+      let tx=this.player.x, ty=this.player.y;
+      if (taunted) {
+        tx = e._tauntPos?.x ?? this._decoyPos.x; ty = e._tauntPos?.y ?? this._decoyPos.y;
+      }
+      const dx=tx-sx, dy=ty-sy; const dist2=dx*dx+dy*dy; const range=22*TILE, range2=range*range;
       // LOS
-      let los=false; if (dist2<range2){ const steps=Math.ceil(Math.hypot(dx,dy)/(TILE/3)); los=true; for(let i=1;i<=steps;i++){ const ix=sx+dx*i/steps, iy=sy+dy*i/steps; const tx=Math.floor(ix/TILE), ty=Math.floor(iy/TILE); if (this.hasSolidBlockAt(tx,ty)) { los=false; break; } } }
-      if (this.itemBag?.invis && dist2 > (3*TILE)*(3*TILE)) { los = false; }
+      let los=false; if (dist2<range2){ const steps=Math.ceil(Math.hypot(dx,dy)/(TILE/3)); los=true; for(let i=1;i<=steps;i++){ const ix=sx+dx*i/steps, iy=sy+dy*i/steps; const txi=Math.floor(ix/TILE), tyi=Math.floor(iy/TILE); if (this.hasSolidBlockAt(txi,tyi)) { los=false; break; } } }
+      const dpx=this.player.x-sx, dpy=this.player.y-sy; const d2Player=dpx*dpx+dpy*dpy;
+      if (!taunted && this.itemBag?.invis && d2Player > (3*TILE)*(3*TILE)) { los = false; }
       // Mode: perched (gravity off) vs ground
       const mode = e.getData('mode')||'perch';
       if (mode==='perch'){
@@ -1417,7 +1575,7 @@ class GameScene extends Phaser.Scene {
           e._ai.nextShotAt = this.time.now + Phaser.Math.Between(800, 1300);
           const ang=Math.atan2(dy,dx)+Phaser.Math.FloatBetween(-0.01,0.01);
           const nx=Math.cos(ang), ny=Math.sin(ang); const sx2=sx+nx*14, sy2=sy+ny*6;
-          const b=this.spawnBulletFrom(sx2, sy2, px, py, { speed: 1100, lifeTiles: 16, spread: 0.008, noBlockDamage: true, fromEnemy: true });
+          const b=this.spawnBulletFrom(sx2, sy2, tx, ty, { speed: 1100, lifeTiles: 16, spread: 0.008, noBlockDamage: true, fromEnemy: true });
           try{ window.playSfx?.('shoot'); }catch(e){}
           // Rare special: throwing knife (insta-kill)
           if (Math.random()<0.07){ const kb=this.bullets.create(sx2,sy2,'tex_throwing_knife'); kb.setData('fromEnemy',true); kb.setData('isKnife',true); kb.setVelocity(nx*900, ny*900); kb.setRotation(ang); this.time.delayedCall(((12*TILE)/900)*1000,()=>kb.destroy()); }
@@ -1430,7 +1588,7 @@ class GameScene extends Phaser.Scene {
         const hitWall=e.body?.blocked?.left || e.body?.blocked?.right;
         if (onGround && hitWall && (!e._ai?.nextJumpAt || this.time.now>=e._ai.nextJumpAt)) { if(!e._ai) e._ai={}; e._ai.nextJumpAt=this.time.now+600; e.setVelocityY(-360); }
         // shoot with worse accuracy
-        if (los && (!e._ai?.nextShotAt || this.time.now>=e._ai.nextShotAt)) { if(!e._ai) e._ai={}; e._ai.nextShotAt=this.time.now+Phaser.Math.Between(450,900); const ang=Math.atan2(dy,dx)+Phaser.Math.FloatBetween(-0.05,0.05); const nx=Math.cos(ang), ny=Math.sin(ang); const sx2=sx+nx*12, sy2=sy+ny*6; const b=this.spawnBulletFrom(sx2,sy2,px,py,{ speed:900, lifeTiles:10, spread:0.04, noBlockDamage:true, fromEnemy:true }); }
+        if (los && (!e._ai?.nextShotAt || this.time.now>=e._ai.nextShotAt)) { if(!e._ai) e._ai={}; e._ai.nextShotAt=this.time.now+Phaser.Math.Between(450,900); const ang=Math.atan2(dy,dx)+Phaser.Math.FloatBetween(-0.05,0.05); const nx=Math.cos(ang), ny=Math.sin(ang); const sx2=sx+nx*12, sy2=sy+ny*6; const b=this.spawnBulletFrom(sx2,sy2,tx,ty,{ speed:900, lifeTiles:10, spread:0.04, noBlockDamage:true, fromEnemy:true }); }
         // occasionally seek leaves above to climb/perch: teleport to a nearby leaves block top to simulate climb
         if (!e._ai) e._ai={}; if (!e._ai.nextPerchAt) e._ai.nextPerchAt=this.time.now+Phaser.Math.Between(5000,9000);
         if (this.time.now>=e._ai.nextPerchAt){
@@ -1479,13 +1637,17 @@ class GameScene extends Phaser.Scene {
     this.wolves.children.iterate(w=>{
         if (!w || !w.active) return;
       if (this._timeStopped) { w.setVelocity(0,0); return; }
-        const dx = this.player.x - w.x;
+    // choose target
+    const taunted = !!(w._tauntUntil && this.time.now < w._tauntUntil && this._decoyPos);
+    let tx=this.player.x, ty=this.player.y; if (taunted) { tx = w._tauntPos?.x ?? this._decoyPos.x; ty = w._tauntPos?.y ?? this._decoyPos.y; }
+        const dx = tx - w.x;
         const dir = dx>0?1:-1;
-      const dyAll = this.player.y - w.y; const d2All = dx*dx + dyAll*dyAll;
-      if (this.itemBag?.invis && d2All > (3*TILE)*(3*TILE)) { w.setVelocityX(0); return; }
+    const dyAll = ty - w.y; const d2All = dx*dx + dyAll*dyAll;
+    const dpx=this.player.x-w.x, dpy=this.player.y-w.y; const d2Player=dpx*dpx+dpy*dpy;
+    if (!taunted && this.itemBag?.invis && d2Player > (3*TILE)*(3*TILE)) { w.setVelocityX(0); return; }
         w.setVelocityX(dir*120);
         if ((w.body.blocked.left || w.body.blocked.right) && w.body.blocked.down) w.setVelocityY(-250);
-        const dy = Math.abs(this.player.y - w.y);
+        const dy = Math.abs(ty - w.y);
         if (Math.abs(dx)<34 && dy<42) {
           const t=this.time.now;
           if (!w._nextBite || t>=w._nextBite) { w._nextBite = t+650; this.playerHp = Math.max(0,(this.playerHp||100)-5); }
@@ -1517,9 +1679,13 @@ class GameScene extends Phaser.Scene {
       if (!o || !o.body) return;
       if (this._timeStopped) { o.setVelocity(0,0); return; }
       if (o._webbedUntil && this.time.now < o._webbedUntil) { o.setVelocity(0,0); return; } else if (o._webbedUntil && this.time.now >= o._webbedUntil) { o._webbedUntil = 0; }
-      const dir = Math.sign(this.player.x - o.x) || (Math.random()<0.5?-1:1);
-      const ddx=this.player.x - o.x, ddy=this.player.y - o.y; const d2=ddx*ddx+ddy*ddy;
-      if (this.itemBag?.invis && d2 > (3*TILE)*(3*TILE)) { o.setVelocityX(0); o.setFlipX(dir<0); return; }
+  // choose target
+  const taunted = !!(o._tauntUntil && this.time.now < o._tauntUntil && this._decoyPos);
+  let tx=this.player.x, ty=this.player.y; if (taunted) { tx = o._tauntPos?.x ?? this._decoyPos.x; ty = o._tauntPos?.y ?? this._decoyPos.y; }
+      const dir = Math.sign(tx - o.x) || (Math.random()<0.5?-1:1);
+      const ddx=tx - o.x, ddy=ty - o.y; const d2=ddx*ddx+ddy*ddy;
+  const dpx=this.player.x-o.x, dpy=this.player.y-o.y; const d2Player=dpx*dpx+dpy*dpy;
+  if (!taunted && this.itemBag?.invis && d2Player > (3*TILE)*(3*TILE)) { o.setVelocityX(0); o.setFlipX(dir<0); return; }
       o.setVelocityX(dir * 110);
       if ((o.body.blocked.down || o.body.touching.down) && (!o._nextHopAt || this.time.now >= o._nextHopAt)) {
         o._nextHopAt = this.time.now + Phaser.Math.Between(600, 1100);
@@ -1755,8 +1921,11 @@ class GameScene extends Phaser.Scene {
   const ridingMoped = this.moped?.mounted;
   const ridingPlane = this.plane?.mounted;
   let speed = baseSpeed;
+  // Apply speed boost when on foot
+  const speedBoostNow = (this.itemBag?.speedUntil||0) > this.time.now;
   if (ridingPlane) speed = baseSpeed * (this.plane.speedMult || 2.2);
   else if (ridingMoped) speed = baseSpeed * (this.moped.speedMult * (this._mopedBoost?1.25:1));
+  else if (speedBoostNow) speed = baseSpeed * 1.5;
 
   if (left) { this.player.setVelocityX(-speed); this.player.setFlipX(true); }
   else if (right) { this.player.setVelocityX(speed); this.player.setFlipX(false); }
@@ -1825,11 +1994,42 @@ class GameScene extends Phaser.Scene {
     // Bird web recovery
     if (this.birds) {
       this.birds.children.iterate((b)=>{
-        if (!b) return;
+        if (!b || !b.active) return;
+        // Recover from web
         if (b._webbedUntil && this.time.now >= b._webbedUntil) {
           b._webbedUntil = 0; b.body && (b.body.allowGravity = false);
-          // resume horizontal drift
           if (b.active) b.setVelocityX((Math.random()<0.5?-1:1) * (120 + Math.random()*120));
+        }
+        // Simple perching behavior: sometimes choose a nearby perch and sit for a bit
+        if (!b._perchUntil || this.time.now >= b._perchUntil) {
+          // If currently perching, resume flight
+          if (b.getData('isPerched')) {
+            b.setData('isPerched', false); b.setVelocityX((Math.random()<0.5?-1:1) * (120 + Math.random()*120)); b.setVelocityY(0);
+          } else if (this.perchSpots?.length && Math.random() < 0.003) {
+            // find nearest perch within 14 tiles horizontally and 10 vertically
+            const rangeX = 14*TILE, rangeY = 10*TILE; let best=null, bestD=1e9;
+            const bx = b.x, by = b.y;
+            for (const p of this.perchSpots) {
+              const px = p.tx*TILE + TILE/2, py = p.ty*TILE + TILE/2;
+              const dx = Math.abs(px - bx), dy = Math.abs(py - by);
+              if (dx <= rangeX && dy <= rangeY) {
+                const d = dx+dy; if (d < bestD) { bestD = d; best = {px,py}; }
+              }
+            }
+            if (best) {
+              // fly quickly to perch and stop
+              const vx = (best.px > bx ? 1 : -1) * 200; const vy = (best.py > by ? 1 : -1) * 140;
+              b.setVelocity(vx, vy);
+              b._perchTarget = best; b._perchUntil = this.time.now + Phaser.Math.Between(3000, 8000);
+            }
+          }
+        } else if (b._perchTarget) {
+          // If close to target, perch: stop and hover (no gravity), mark perched
+          const px = b._perchTarget.px, py = b._perchTarget.py;
+          if (Math.abs(b.x - px) < 6 && Math.abs(b.y - py) < 6) {
+            b.setVelocity(0,0); b.body && (b.body.allowGravity = false);
+            b.setData('isPerched', true);
+          }
         }
       });
     }
@@ -1940,7 +2140,7 @@ class GameScene extends Phaser.Scene {
           if (bestSprite && bestKey) {
             // mine similar to player
             const type = bestSprite.getData('type');
-            if (type === 'trunk') this.dropWood(bestSprite.x, bestSprite.y);
+            if (type === 'trunk' || type==='tammi' || type==='koivu') this.dropWood(bestSprite.x, bestSprite.y);
             else if (type === 'ground') { if (Math.random() < 0.30) this.dropCoin(bestSprite.x, bestSprite.y); }
             else if (type === 'stone') { if (Math.random() < 0.85) this.dropStone(bestSprite.x, bestSprite.y); }
             // persistence
@@ -2162,7 +2362,7 @@ class GameScene extends Phaser.Scene {
           for (let oy=-5; oy<=5; oy++) {
             const spr = this.blocks.get(`${ptx+ox},${pty+oy}`);
             const tp = spr?.getData && spr.getData('type');
-            if (tp==='trunk' || tp==='tammi') { nearTrunk = true; break; }
+            if (tp==='trunk' || tp==='tammi' || tp==='koivu') { nearTrunk = true; break; }
           }
         }
         if (nearTrunk && Math.random()<0.6) {
@@ -2358,6 +2558,56 @@ class GameScene extends Phaser.Scene {
     this._refreshItemBagUI?.();
     this.saveState();
   }
+  activateSpeedBoost(){
+    const now = this.time.now;
+    if ((this.itemBag.speedUntil||0) > now) { this.showToast('Nopeus jo aktiivinen'); return; }
+    const dur = 6000; // 6s
+    this.itemBag.speedUntil = now + dur;
+    this._refreshItemBagUI?.();
+    this.showToast('Nopeus: +50%');
+    try{ window.playSfx?.('powerup'); }catch(_){}
+    this.saveState();
+  }
+  activateShield(){
+    const now = this.time.now;
+    if ((this.itemBag.shieldUntil||0) > now) { this.showToast('Suoja jo aktiivinen'); return; }
+    const dur = 5000; // 5s
+    this.itemBag.shieldUntil = now + dur;
+    this._refreshItemBagUI?.();
+    this.showToast('Suoja: päällä');
+    try{ window.playSfx?.('powerup'); }catch(_){}
+    this.saveState();
+  }
+  deployDecoy(){
+    const now = this.time.now;
+    if ((this.itemBag.decoyUntil||0) > now) { this.showToast('Houkutin jo aktiivinen'); return; }
+    const dur = 7000; // 7s
+    this.itemBag.decoyUntil = now + dur;
+    // Spawn or move decoy marker near player
+    const x = this.player.x + (this.player.flipX ? -20 : 20);
+    const y = this.player.y;
+    if (!this._decoySprite) {
+      // simple glowing circle
+      const g = this.add.graphics();
+      g.fillStyle(0xffdd66, 0.9); g.fillCircle(0,0,8);
+      const rt = this.add.renderTexture(0,0,18,18); rt.draw(g,9,9); g.destroy();
+      const key='tex_decoy_dot'; rt.saveTexture(key); rt.destroy();
+      this._decoySprite = this.add.image(x,y,key).setDepth(6).setAlpha(0.9);
+    }
+    this._decoySprite.setVisible(true).setPosition(x,y);
+    this._decoyPos = { x, y };
+    // Taunt nearby enemies to target decoy
+    const taunt = (e)=>{ if(!e||!e.active) return; e._tauntUntil = now + dur; e._tauntPos = { x, y }; };
+    this.enemySoldiers?.children?.iterate?.(taunt);
+    this.wolves?.children?.iterate?.(taunt);
+    this.oppos?.children?.iterate?.(taunt);
+    // Hide sprite when expires
+    this.time.delayedCall(dur+50, ()=>{ if (this._decoySprite) this._decoySprite.setVisible(false); this._decoyPos = null; });
+    this._refreshItemBagUI?.();
+    this.showToast('Houkutin: viholliset hämääntyivät');
+    try{ window.playSfx?.('powerup'); }catch(_){}
+    this.saveState();
+  }
   ninjaSwordSlash(pointer){
     if (this._ninjaSlashCd && this._ninjaSlashCd > this.time.now) return; this._ninjaSlashCd = this.time.now + 220;
     const tiles = Math.max(1, this.ninja.swordRange || Math.ceil(1.6 + 0.2*(this.ninja.swordLevel-1)));
@@ -2374,6 +2624,84 @@ class GameScene extends Phaser.Scene {
     const sx = px, sy = py; const ex = px + (dirRight ? reach : -reach), ey = py;
     g.beginPath(); g.moveTo(sx, sy); g.lineTo(ex, ey); g.strokePath(); this.time.delayedCall(100, ()=> g.destroy());
     if (target) { const x=target.x,y=target.y; target.destroy(); this.dropCoins?.(x,y,2); }
+  }
+
+  // --- House Builder ---
+  buildHouseNearPlayer(opts={}){
+    // Enforce stone + wood aesthetic only
+    const size = opts.size || this._houseSize || 'small';
+    this._houseSize = size; // remember last size
+    // Dimensions
+    const W = size==='medium' ? 10 : 8; // inner width in tiles
+    const H = size==='medium' ? 7 : 6;  // inner height in tiles
+    // Materials: stone foundation and corners; wood walls fill and roof; wood floor
+    const WALL_STONE = 'stone';
+    const WALL_WOOD = 'wood';
+    const ROOF_WOOD = 'wood';
+    const FLOOR_WOOD = 'wood';
+    // Find a flat-ish spot to the right of player
+    const startX = Math.floor((this.player.x + 3*TILE)/TILE);
+    let baseY = Math.floor(this.player.y / TILE) + 2;
+    // Sample a few tiles downward to find solid ground
+    for (let dy=0; dy<14; dy++){
+      if (this.hasSolidBlockAt(startX, baseY+dy)) { baseY = baseY+dy-1; break; }
+    }
+    const x0 = startX, y0 = baseY; // bottom-left interior corner reference
+    // Clear a rectangular area (with margin)
+    const totalW = W+2, totalH = H+3; // include walls and roof space
+    for (let tx=-1; tx<totalW+1; tx++){
+      for (let ty=-totalH; ty<=1; ty++){
+        const gx = x0+tx, gy = y0+ty;
+        if (gy>=0) this.removeBlock?.(gx, gy);
+      }
+    }
+    // Place floor (wood planks)
+    for (let i=0; i<W; i++){
+      this.addBlock?.(x0+i, y0, 'tex_plank', 'plank', true);
+    }
+    // Optional stone foundation below
+    for (let i=-1; i<=W; i++){
+      this.addBlock?.(x0+i, y0+1, 'tex_stone', 'stone', true);
+    }
+    // Build side walls as stone pillars
+    for (let h=1; h<=H; h++){
+      this.addBlock?.(x0-1, y0-h, 'tex_stone', 'stone', true);
+      this.addBlock?.(x0+W, y0-h, 'tex_stone', 'stone', true);
+    }
+    // Door opening (2 tiles tall) centered
+    const doorX = x0 + Math.floor(W/2);
+    this.removeBlock?.(doorX, y0-1);
+    this.removeBlock?.(doorX, y0-2);
+    // Windows (simple holes)
+    const winY = y0 - Math.floor(H/2);
+    this.removeBlock?.(x0+2, winY);
+    this.removeBlock?.(x0+W-3, winY);
+    // Roof: simple flat-ish wood cap
+    for (let i=-1; i<=W; i++){
+      const rx = x0 + i;
+      this.addBlock?.(rx, y0-H-1, 'tex_plank', 'plank', true);
+    }
+    // Stone corner accents on top
+    this.addBlock?.(x0-1, y0-H-1, 'tex_stone', 'stone', true);
+    this.addBlock?.(x0+W, y0-H-1, 'tex_stone', 'stone', true);
+    // Door frame accents with stone sides, wood lintel
+    this.addBlock?.(doorX-1, y0-1, 'tex_stone', 'stone', true);
+    this.addBlock?.(doorX+1, y0-1, 'tex_stone', 'stone', true);
+  this.addBlock?.(doorX, y0-3, 'tex_plank', 'plank', true);
+    // Interior light (torch) if function exists
+    const torchX = x0 + Math.floor(W/2) + (Math.random()<0.5?-2:2);
+    const torchY = y0 - Math.floor(H*0.7);
+    try { this.placeTorchAt?.(torchX, torchY); } catch(e) {}
+    // Welcome message and small particles
+    this.showToast?.('Talo rakennettu!');
+    try {
+      const px = (x0 + W/2)*TILE, py = (y0 - H/2)*TILE;
+      const pm = this.add.particles('__white');
+      const em = pm.createEmitter({ x:px, y:py, speed:{min:30,max:120}, angle:{min:0,max:360}, gravityY:400, lifespan:700, quantity:0, scale:{start:0.8,end:0}, alpha:{start:0.8,end:0}, tint:0xfff4c1, blendMode:'ADD' });
+      em.explode(18, px, py); this.time.delayedCall(1200, ()=>pm.destroy());
+    } catch(e) {}
+    // Save world changes
+    this.saveState?.();
   }
   ninjaThrowKnife(pointer){
     if (this._ninjaKnifeCd && this._ninjaKnifeCd > this.time.now) return; this._ninjaKnifeCd = this.time.now + Math.max(100, 260 - this.ninja.knifeLevel*20);
@@ -2592,7 +2920,7 @@ class GameScene extends Phaser.Scene {
       if (this.hook.active) this.cancelGrapple(); else this.tryGrapple(pointer);
       return;
     }
-  if (this.tools.equipped === 'pistol' || this.tools.equipped === 'pistol_copper' || this.tools.equipped === 'bow' || this.tools.equipped === 'bow_copper' || this.tools.equipped === 'minigun' || this.tools.equipped === 'minigun_copper' || this.tools.equipped === 'sniper' || this.tools.equipped === 'sniper_copper' || this.tools.equipped === 'rifle' || this.tools.equipped === 'cannon' || this.tools.equipped === 'bazooka' || this.tools.equipped === 'bazooka_copper' || this.tools.equipped === 'grenade' || this.tools.equipped === 'grenade_copper' || this.tools.equipped === 'nuke' || this.tools.equipped === 'nuke_copper' || this.tools.equipped === 'plane' || this.tools.equipped === 'plane_copper') {
+  if (this.tools.equipped === 'pistol' || this.tools.equipped === 'pistol_copper' || this.tools.equipped === 'bow' || this.tools.equipped === 'bow_copper' || this.tools.equipped === 'crossbow' || this.tools.equipped === 'crossbow_copper' || this.tools.equipped === 'minigun' || this.tools.equipped === 'minigun_copper' || this.tools.equipped === 'sniper' || this.tools.equipped === 'sniper_copper' || this.tools.equipped === 'rifle' || this.tools.equipped === 'cannon' || this.tools.equipped === 'bazooka' || this.tools.equipped === 'bazooka_copper' || this.tools.equipped === 'grenade' || this.tools.equipped === 'grenade_copper' || this.tools.equipped === 'nuke' || this.tools.equipped === 'nuke_copper' || this.tools.equipped === 'plane' || this.tools.equipped === 'plane_copper') {
       if (this.tools.equipped === 'pistol') {
         this.shootBullet(pointer);
       } else if (this.tools.equipped === 'pistol_copper') {
@@ -2601,6 +2929,10 @@ class GameScene extends Phaser.Scene {
         this.fireBow(pointer);
       } else if (this.tools.equipped === 'bow_copper') {
         this.fireBow(pointer, { copper: true });
+      } else if (this.tools.equipped === 'crossbow') {
+        this.fireCrossbow(pointer);
+      } else if (this.tools.equipped === 'crossbow_copper') {
+        this.fireCrossbow(pointer, { copper: true });
       } else if (this.tools.equipped === 'minigun') {
         this.shootMinigunBurst(pointer);
       } else if (this.tools.equipped === 'minigun_copper') {
@@ -2651,7 +2983,7 @@ class GameScene extends Phaser.Scene {
       if (!allowed) { this.showToast('Tarvitset hakun! (2: puuhakku)'); return; }
     }
 
-  if (type === 'trunk' || type === 'tammi') this.dropWood(sprite.x, sprite.y);
+  if (type === 'trunk' || type === 'tammi' || type === 'koivu') this.dropWood(sprite.x, sprite.y);
     else if (type === 'ground') { if (Math.random() < 0.30) this.dropCoin(sprite.x, sprite.y); }
     else if (type === 'stone') { if (Math.random() < 0.85) this.dropStone(sprite.x, sprite.y); }
 
@@ -2666,6 +2998,20 @@ class GameScene extends Phaser.Scene {
   sprite.destroy();
   this.blocks.delete(key);
   if (type === 'cactus') this.cactusTiles.delete(key);
+  // If a trunk block breaks, remove its attached branches and related perches
+  if (type === 'trunk' || type === 'tammi' || type === 'koivu') {
+    const anchorKey = `${tx},${ty}`;
+    const list = this.branches.get(anchorKey);
+    if (list && list.length) {
+      for (const br of list) {
+        for (const seg of (br.segments||[])) { try { seg.img?.destroy?.(); } catch(e){} }
+      }
+      this.branches.delete(anchorKey);
+      // Remove perch spots that sit on destroyed branch segments
+      const segSet = new Set(list.flatMap(br=> br.segments?.map(s=>`${s.tx},${s.ty}`) || []));
+      this.perchSpots = this.perchSpots.filter(p=> !segSet.has(`${p.tx},${p.ty}`));
+    }
+  }
   // If there is water above this tile, let it flow down
   this.tryFlowWaterFrom(tx, ty-1);
     this.saveState();
@@ -2673,7 +3019,7 @@ class GameScene extends Phaser.Scene {
 
   // === Build Minigame Helpers ===
   startBuildMiniGame(){
-    const palette = ['wood','stone','plank','sand','cactus','tammi'];
+  const palette = ['wood','stone','plank','sand','cactus','tammi','koivu'];
     this.buildMiniGame.active = true;
     this.buildMiniGame.timeLeft = 30;
     this.buildMiniGame.palette = palette;
@@ -2746,6 +3092,85 @@ class GameScene extends Phaser.Scene {
   const flicker = { seed: Math.random()*Math.PI*2, speed: 2 + Math.random()*1.2, ampR: 0.05, ampA: 0.15 };
   this.torches.set(key, { image: img, flicker });
     this.torchPositions.push({ tx, ty });
+    this.saveState();
+  }
+
+  // --- Furniture placement (decor only) ---
+  placeLamp(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    if (this.blocks.get(key)) { this.showToast('Paikka varattu'); return; }
+    if (!this.hasSolidBlockAt(tx, ty+1)) { this.showToast('Tarvitset lattian alle'); return; }
+    if (this.lamps.has(key)) { this.showToast('Lamppu jo tässä'); return; }
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    const img = this.add.image(x,y,'tex_lamp').setDepth(4);
+    this.decor.add(img);
+    const cx = Math.floor(tx / CHUNK_W);
+    this.chunks.get(cx)?.decor.push(img);
+    this.lamps.set(key, { image: img });
+    this.lampPositions.push({ tx, ty });
+    this.saveState();
+  }
+  removeLampAtPointer(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    const e = this.lamps.get(key); if (!e) { this.showToast('Ei lamppua'); return; }
+    e.image?.destroy(); this.lamps.delete(key);
+    this.lampPositions = this.lampPositions.filter(p=> !(p.tx===tx && p.ty===ty));
+    this.saveState();
+  }
+
+  placeSofa(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    if (this.blocks.get(key)) { this.showToast('Paikka varattu'); return; }
+    if (!this.hasSolidBlockAt(tx, ty+1)) { this.showToast('Tarvitset lattian alle'); return; }
+    if (this.sofas.has(key)) { this.showToast('Sohva jo tässä'); return; }
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    const img = this.add.image(x,y,'tex_sofa').setDepth(4);
+    this.decor.add(img);
+    const cx = Math.floor(tx / CHUNK_W);
+    this.chunks.get(cx)?.decor.push(img);
+    this.sofas.set(key, { image: img });
+    this.sofaPositions.push({ tx, ty });
+    this.saveState();
+  }
+  removeSofaAtPointer(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    const e = this.sofas.get(key); if (!e) { this.showToast('Ei sohvaa'); return; }
+    e.image?.destroy(); this.sofas.delete(key);
+    this.sofaPositions = this.sofaPositions.filter(p=> !(p.tx===tx && p.ty===ty));
+    this.saveState();
+  }
+
+  placeTable(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    if (this.blocks.get(key)) { this.showToast('Paikka varattu'); return; }
+    if (!this.hasSolidBlockAt(tx, ty+1)) { this.showToast('Tarvitset lattian alle'); return; }
+    if (this.tables.has(key)) { this.showToast('Pöytä jo tässä'); return; }
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    const img = this.add.image(x,y,'tex_table').setDepth(4);
+    this.decor.add(img);
+    const cx = Math.floor(tx / CHUNK_W);
+    this.chunks.get(cx)?.decor.push(img);
+    this.tables.set(key, { image: img });
+    this.tablePositions.push({ tx, ty });
+    this.saveState();
+  }
+  removeTableAtPointer(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    const e = this.tables.get(key); if (!e) { this.showToast('Ei pöytää'); return; }
+    e.image?.destroy(); this.tables.delete(key);
+    this.tablePositions = this.tablePositions.filter(p=> !(p.tx===tx && p.ty===ty));
     this.saveState();
   }
 
@@ -3756,7 +4181,7 @@ class GameScene extends Phaser.Scene {
       const spr = this.blocks.get(key);
       if (!spr) continue;
       const type = spr.getData('type');
-  if (type === 'trunk' || type==='tammi') this.dropWood(spr.x, spr.y);
+  if (type === 'trunk' || type==='tammi' || type==='koivu') this.dropWood(spr.x, spr.y);
       else if (type === 'ground') { if (Math.random() < 0.30) this.dropCoin(spr.x, spr.y); }
       else if (type === 'stone') { if (Math.random() < 0.85) this.dropStone(spr.x, spr.y); }
       if (type === 'plank') {
@@ -3820,7 +4245,7 @@ class GameScene extends Phaser.Scene {
       const spr = this.blocks.get(key);
       if (!spr) continue;
       const type = spr.getData('type');
-  if (type === 'trunk' || type==='tammi') this.dropWood(spr.x, spr.y);
+  if (type === 'trunk' || type==='tammi' || type==='koivu') this.dropWood(spr.x, spr.y);
       else if (type === 'ground') { if (Math.random() < 0.35) this.dropCoin(spr.x, spr.y); }
       else if (type === 'stone') { if (Math.random() < 0.9) this.dropStone(spr.x, spr.y); }
       if (type === 'plank') {
@@ -3897,7 +4322,7 @@ class GameScene extends Phaser.Scene {
         if (!spr) continue;
         const type = spr.getData('type');
         // drops similar to mining/shooting
-  if (type === 'trunk' || type==='tammi') this.dropWood(spr.x, spr.y);
+  if (type === 'trunk' || type==='tammi' || type==='koivu') this.dropWood(spr.x, spr.y);
         else if (type === 'ground') { if (Math.random() < 0.30) this.dropCoin(spr.x, spr.y); }
         else if (type === 'stone') { if (Math.random() < 0.85) this.dropStone(spr.x, spr.y); }
         // persistence
@@ -4004,7 +4429,7 @@ class GameScene extends Phaser.Scene {
 
   // --- Clone tool ---
   cycleCloneTarget(){
-    const order = ['none','ground','stone','sand','cactus','trunk','tammi'];
+  const order = ['none','ground','stone','sand','cactus','trunk','tammi','koivu'];
     const idx = order.indexOf(this.cloneSettings.target);
     this.cloneSettings.target = order[(idx+1) % order.length];
     this.showToast(`Kloonaus kohde: ${this.cloneSettings.target}`);
@@ -4134,7 +4559,7 @@ class GameScene extends Phaser.Scene {
         const type = spr.getData('type');
         if (type === 'iron') continue; // unbreakable
         // Drops similar to onBulletHit/explode
-        if (type === 'trunk' || type==='tammi') this.dropWood(spr.x, spr.y);
+  if (type === 'trunk' || type==='tammi' || type==='koivu') this.dropWood(spr.x, spr.y);
         else if (type === 'ground') { if (Math.random() < 0.30) this.dropCoin(spr.x, spr.y); }
         else if (type === 'stone') { if (Math.random() < 0.85) this.dropStone(spr.x, spr.y); }
         // Persistence
@@ -4346,6 +4771,18 @@ class GameScene extends Phaser.Scene {
     this.time.delayedCall(80, shoot);
   }
 
+  // --- Crossbow (Varsijousi) ---
+  fireCrossbow(pointer, opts = {}){
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const sx = this.player.x, sy = this.player.y;
+    // Crossbow: one precise, heavier bolt. Slightly slower than bow, more range, no double-tap.
+    const speed = 700; // bolt speed
+    const lifeTiles = 22 + (opts.copper ? 17 : 0); // longer base range, copper extends further
+    const b = this.spawnBulletFrom(sx, sy, wp.x, wp.y, { speed, lifeTiles, spread: 0.005 });
+    if (b && b.setTexture) b.setTexture('tex_bolt');
+    window.playSfx?.('shoot');
+  }
+
   // --- Flamethrower ---
   tickFlame(pointer){
     const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
@@ -4406,8 +4843,8 @@ class GameScene extends Phaser.Scene {
         const spr = this.blocks.get(key);
         if (!spr) continue;
         const type = spr.getData('type');
-        if (type==='trunk' || type==='tammi' || type==='leaves' || type==='cactus'){
-          if (type==='trunk' || type==='tammi') this.dropWood(spr.x, spr.y);
+  if (type==='trunk' || type==='tammi' || type==='koivu' || type==='leaves' || type==='cactus'){
+          if (type==='trunk' || type==='tammi' || type==='koivu') this.dropWood(spr.x, spr.y);
           if (type === 'plank') {
             this.worldDiff.placed = this.worldDiff.placed.filter(p=>!(p.tx===tx && p.ty===ty));
           } else {
@@ -4476,7 +4913,7 @@ class GameScene extends Phaser.Scene {
     const ty = Math.floor(block.y / TILE);
     const key = `${tx},${ty}`;
     const type = block.getData('type');
-  if (type === 'trunk' || type==='tammi') this.dropWood(block.x, block.y);
+  if (type === 'trunk' || type==='tammi' || type==='koivu') this.dropWood(block.x, block.y);
     else if (type === 'ground') { if (Math.random() < 0.30) this.dropCoin(block.x, block.y); }
     else if (type === 'stone') { if (Math.random() < 0.85) this.dropStone(block.x, block.y); }
     // Update persistence
@@ -4583,6 +5020,19 @@ class GameScene extends Phaser.Scene {
   }
 
   onItemPickup(player, item){
+    if (!item || !item.active) return;
+    if (item.getData('_picked')) return; // re-entrancy guard
+    // mark and disable immediately to avoid repeated overlaps in the same step
+    try {
+      item.setData('_picked', true);
+      if (item.body) {
+        item.body.enable = false;
+        item.body.checkCollision.none = true;
+        item.body.stop?.();
+        item.body.setVelocity?.(0,0);
+      }
+      item.setVisible(false);
+    } catch(e) {}
     const type = item.getData('item');
     if (type === 'wood' || type === 'stone') {
       if (!this.addToBackpack(type, 1)) {
@@ -4595,7 +5045,8 @@ class GameScene extends Phaser.Scene {
       this.showToast('Liha +1');
       this.updateInventoryUI(); this.saveState();
     }
-    item.destroy();
+    // safe destroy after this tick
+    this.time.delayedCall(0, ()=>{ try { item.destroy(); } catch(e) {} });
   }
 
   // Backpack helpers
@@ -4675,8 +5126,8 @@ class GameScene extends Phaser.Scene {
       const hv = Math.max(0, Math.min(this.hunger.value|0, this.hunger.max));
       slots[4].textContent += (slots[4].textContent? ' | ' : '') + `Nälkä: ${hv}/${this.hunger.max} (Liha: ${this.food.meat})`;
     // Show equipped tool
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', rifle:'Kivääri', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', tower:'Ampumatorni',
-    pistol_copper:'Pistooli (Kupari)', bow_copper:'Jousipyssy (Kupari)', minigun_copper:'Minigun (Kupari)', ak47_copper:'AK-47 (Kupari)', knife_copper:'Puukko (Kupari)', sniper_copper:'Tarkka-ase (Kupari)', bazooka_copper:'Bazooka (Kupari)', grenade_copper:'Kranaatti (Kupari)', nuke_copper:'Ydinase (Kupari)', pamppu_copper:'Pamppu (Kupari)', plane_copper:'Lentokone (Kupari)'
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', crossbow:'Varsijousi', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', rifle:'Kivääri', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', tower:'Ampumatorni', lamp:'Lamppu', sofa:'Sohva', table:'Pöytä',
+    pistol_copper:'Pistooli (Kupari)', bow_copper:'Jousipyssy (Kupari)', crossbow_copper:'Varsijousi (Kupari)', minigun_copper:'Minigun (Kupari)', ak47_copper:'AK-47 (Kupari)', knife_copper:'Puukko (Kupari)', sniper_copper:'Tarkka-ase (Kupari)', bazooka_copper:'Bazooka (Kupari)', grenade_copper:'Kranaatti (Kupari)', nuke_copper:'Ydinase (Kupari)', pamppu_copper:'Pamppu (Kupari)', plane_copper:'Lentokone (Kupari)'
   };
   const eq = this.tools.equipped;
   let suffix = '';
@@ -4704,12 +5155,13 @@ class GameScene extends Phaser.Scene {
   else if (eq === 'ak47') key = 'tex_weapon_ak47';
   else if (eq === 'flame') key = 'tex_weapon_flamer';
   else if (eq === 'bow') key = 'tex_weapon_bow';
+  else if (eq === 'crossbow') key = 'tex_weapon_crossbow';
     // Show cannon as a small barrel when selected (optional)
     else if (eq === 'cannon') key = 'tex_cannon_base';
     // copper variants reuse same sprites for now
     else if (/_copper$/.test(eq)) {
       const base = eq.replace(/_copper$/,'');
-  const map = { pistol:'tex_weapon_pistol', minigun:'tex_weapon_minigun', sniper:'tex_weapon_sniper', rifle:'tex_weapon_rifle', bazooka:'tex_weapon_bazooka', knife:'tex_weapon_knife', grenade:'tex_grenade', nuke:'tex_nuke', wizard:'tex_weapon_wand', pamppu:'tex_weapon_baton', ak47:'tex_weapon_ak47', flame:'tex_weapon_flamer', bow:'tex_weapon_bow', cannon:'tex_cannon_base' };
+  const map = { pistol:'tex_weapon_pistol', minigun:'tex_weapon_minigun', sniper:'tex_weapon_sniper', rifle:'tex_weapon_rifle', bazooka:'tex_weapon_bazooka', knife:'tex_weapon_knife', grenade:'tex_grenade', nuke:'tex_nuke', wizard:'tex_weapon_wand', pamppu:'tex_weapon_baton', ak47:'tex_weapon_ak47', flame:'tex_weapon_flamer', bow:'tex_weapon_bow', crossbow:'tex_weapon_crossbow', cannon:'tex_cannon_base' };
       key = map[base] || null;
     }
     // Hide for non-weapon tools
@@ -4732,6 +5184,8 @@ class GameScene extends Phaser.Scene {
         this.weaponSprite.setOrigin(0.15,0.55).setScale(1);
       } else if (eq === 'bow') {
         this.weaponSprite.setOrigin(0.2,0.55).setScale(1);
+      } else if (eq === 'crossbow') {
+        this.weaponSprite.setOrigin(0.15,0.6).setScale(1);
       } else if (eq === 'cannon') {
         this.weaponSprite.setOrigin(0.3,0.5).setScale(0.8);
       } else {
@@ -4752,8 +5206,8 @@ class GameScene extends Phaser.Scene {
     const select = document.getElementById('toolSelect');
     if (!select) return;
     select.innerHTML = '';
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', spear:'Keihäs', sniper:'Tarkka-ase', rifle:'Kivääri', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', tower:'Ampumatorni', trap:'Ansat',
-    pistol_copper:'Pistooli (Kupari)', bow_copper:'Jousipyssy (Kupari)', minigun_copper:'Minigun (Kupari)', ak47_copper:'AK-47 (Kupari)', knife_copper:'Puukko (Kupari)', sniper_copper:'Tarkka-ase (Kupari)', bazooka_copper:'Bazooka (Kupari)', grenade_copper:'Kranaatti (Kupari)', nuke_copper:'Ydinase (Kupari)', pamppu_copper:'Pamppu (Kupari)', plane_copper:'Lentokone (Kupari)'
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', crossbow:'Varsijousi', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', spear:'Keihäs', sniper:'Tarkka-ase', rifle:'Kivääri', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', tower:'Ampumatorni', trap:'Ansat', lamp:'Lamppu', sofa:'Sohva', table:'Pöytä',
+  pistol_copper:'Pistooli (Kupari)', bow_copper:'Jousipyssy (Kupari)', crossbow_copper:'Varsijousi (Kupari)', minigun_copper:'Minigun (Kupari)', ak47_copper:'AK-47 (Kupari)', knife_copper:'Puukko (Kupari)', sniper_copper:'Tarkka-ase (Kupari)', bazooka_copper:'Bazooka (Kupari)', grenade_copper:'Kranaatti (Kupari)', nuke_copper:'Ydinase (Kupari)', pamppu_copper:'Pamppu (Kupari)', plane_copper:'Lentokone (Kupari)'
   };
     for (const tool in this.tools.owned) {
       if (this.tools.owned[tool]) {
@@ -4780,8 +5234,12 @@ class GameScene extends Phaser.Scene {
     const y = ty * TILE + TILE/2;
     let sprite;
     if (collides) {
-  // Auto-use grass variant for surface natural ground only
-  const key = (type === 'ground' && textureKey === 'tex_ground' && ty === SURFACE_Y) ? 'tex_ground_grass' : textureKey;
+  // Auto-use surface variants (grass for ground, bright cap for snow) for tiles at the surface line
+  let key = textureKey;
+  if (ty === SURFACE_Y) {
+    if (type === 'ground' && textureKey === 'tex_ground') key = 'tex_ground_grass';
+    if (type === 'snow' && textureKey === 'tex_snow') key = 'tex_snow_top';
+  }
       sprite = this.platforms.create(x, y, key);
       sprite.refreshBody();
       sprite.setData('type', type);
@@ -4802,6 +5260,37 @@ class GameScene extends Phaser.Scene {
       if (this.currentChunk!=null) this.chunks.get(this.currentChunk)?.decor.push(sprite);
     }
     return sprite;
+  }
+
+  // Place a block by logical type, mapping to the right texture and collision; persists placement
+  placeBlock(tx, ty, type) {
+    // Map logical types to textures
+    let t = type;
+    if (t === 'wood') t = 'trunk'; // treat generic wood as regular trunk
+    const texMap = {
+      ground: 'tex_ground',
+      stone: 'tex_stone',
+      plank: 'tex_ground',
+      sand: 'tex_sand',
+      cactus: 'tex_cactus',
+      trunk: 'tex_trunk',
+      tammi: 'tex_tammi',
+      koivu: 'tex_koivu',
+      snow: 'tex_snow',
+      leaves: 'tex_leaves'
+    };
+    const textureKey = texMap[t] || 'tex_ground';
+    // leaves are non-solid decor, others are solid by default
+    const collides = (t !== 'leaves');
+    // Avoid overwriting existing solids
+    const key = `${tx},${ty}`;
+    if (this.blocks.has(key) && collides) return null;
+    const spr = this.addBlock(tx, ty, textureKey, t === 'plank' ? 'plank' : t, collides);
+    // Persist placement for rebuild across loads
+    // Use explicit textureKey so surface variants don't confuse diffs
+    this.worldDiff.placed.push({ tx, ty, type: (t === 'plank' ? 'plank' : t), textureKey });
+    this.worldDiff.removed = this.worldDiff.removed.filter(k => k !== key);
+    return spr;
   }
 
   addWater(tx, ty) {
@@ -4872,6 +5361,37 @@ class GameScene extends Phaser.Scene {
         this.chunks.get(cx)?.decor.push(img);
   const flicker = { seed: Math.random()*Math.PI*2, speed: 2 + Math.random()*1.2, ampR: 0.05, ampA: 0.15 };
   this.torches.set(`${p.tx},${p.ty}`, { image: img, flicker });
+      }
+    }
+    // Re-spawn saved furniture (lamps, sofas, tables)
+    if (Array.isArray(this.lampPositions)) {
+      for (const p of this.lampPositions) {
+        const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2; const cx = Math.floor(p.tx/CHUNK_W);
+        const key = `${p.tx},${p.ty}`;
+        const img = this.add.image(x,y,'tex_lamp').setDepth(4);
+        this.lamps.set(key, { image: img });
+        this.decor.add(img);
+        this.chunks.get(cx)?.decor.push(img);
+      }
+    }
+    if (Array.isArray(this.sofaPositions)) {
+      for (const p of this.sofaPositions) {
+        const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2; const cx = Math.floor(p.tx/CHUNK_W);
+        const key = `${p.tx},${p.ty}`;
+        const img = this.add.image(x,y,'tex_sofa').setDepth(4);
+        this.sofas.set(key, { image: img });
+        this.decor.add(img);
+        this.chunks.get(cx)?.decor.push(img);
+      }
+    }
+    if (Array.isArray(this.tablePositions)) {
+      for (const p of this.tablePositions) {
+        const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2; const cx = Math.floor(p.tx/CHUNK_W);
+        const key = `${p.tx},${p.ty}`;
+        const img = this.add.image(x,y,'tex_table').setDepth(4);
+        this.tables.set(key, { image: img });
+        this.decor.add(img);
+        this.chunks.get(cx)?.decor.push(img);
       }
     }
     // Re-spawn saved mines
@@ -5005,20 +5525,21 @@ class GameScene extends Phaser.Scene {
     const startTx = cx * CHUNK_W;
     const endTx = startTx + CHUNK_W - 1;
 
-  // Determine biome for this chunk: trend toward desert the farther from center ("pelin reunaan" aavikko)
+  // Determine biome for this chunk: center is forest, far +X side drifts to desert, far -X side drifts to snow
     const dist = Math.abs(cx);
-    const centerNoDesert = 8;      // chunks around center: no desert here
-    const farAlwaysDesert = 25;    // beyond this: always desert
+    const centerNoAlt = 8;       // chunks around center: always forest
+    const farAlwaysAlt = 25;     // beyond this: always alt biome per side
     let biome;
-    if (dist <= centerNoDesert) {
+    if (dist <= centerNoAlt) {
       biome = 'forest';
-    } else if (dist >= farAlwaysDesert) {
-      biome = 'desert';
+    } else if (dist >= farAlwaysAlt) {
+      biome = (cx >= 0) ? 'desert' : 'snow';
     } else {
-      // Smoothly increase desert probability from 15% to 85% between the thresholds
-      const t = (dist - centerNoDesert) / (farAlwaysDesert - centerNoDesert);
-      const desertProb = 0.15 + t * 0.70; // 0.15..0.85
-      biome = (rng() < desertProb) ? 'desert' : 'forest';
+      // Smooth transition probability from forest -> side biome
+      const t = (dist - centerNoAlt) / (farAlwaysAlt - centerNoAlt); // 0..1
+      const p = 0.15 + t * 0.70; // 0.15..0.85
+      if (cx >= 0) biome = (rng() < p) ? 'desert' : 'forest';
+      else biome = (rng() < p) ? 'snow' : 'forest';
     }
 
     // Surface line and underground fill per biome
@@ -5030,7 +5551,14 @@ class GameScene extends Phaser.Scene {
           const type = (tex === 'tex_sandstone') ? 'stone' : 'sand';
           this.addBlock(tx, ty, tex, type, true);
         }
-      } else {
+      } else if (biome === 'snow') {
+        this.addBlock(tx, SURFACE_Y, 'tex_snow', 'snow', true);
+        for (let ty = SURFACE_Y+1; ty < WORLD_TILES_Y; ty++) {
+          const tex = (ty - SURFACE_Y > 2) ? 'tex_stone' : 'tex_snow';
+          const type = (tex === 'tex_stone') ? 'stone' : 'snow';
+          this.addBlock(tx, ty, tex, type, true);
+        }
+      } else { // forest
         this.addBlock(tx, SURFACE_Y, 'tex_ground', 'ground', true);
         for (let ty = SURFACE_Y+1; ty < WORLD_TILES_Y; ty++) {
           const tex = (ty - SURFACE_Y > 2) ? 'tex_stone' : 'tex_ground';
@@ -5063,8 +5591,8 @@ class GameScene extends Phaser.Scene {
       const len = 2 + Math.floor(rng()*6);
       const px = startTx + 2 + Math.floor(rng() * Math.max(1, (CHUNK_W - len - 4)));
       const py = 6 + Math.floor(rng() * (SURFACE_Y - 8));
-      const platTex = biome === 'desert' ? 'tex_sand' : 'tex_ground';
-      const platType = biome === 'desert' ? 'sand' : 'ground';
+      const platTex = biome === 'desert' ? 'tex_sand' : (biome === 'snow' ? 'tex_snow' : 'tex_ground');
+      const platType = biome === 'desert' ? 'sand' : (biome === 'snow' ? 'snow' : 'ground');
       for (let j=0;j<len;j++) this.addBlock(px+j, py, platTex, platType, true);
     }
 
@@ -5077,20 +5605,63 @@ class GameScene extends Phaser.Scene {
         const height = 2 + Math.floor(rng()*3); // 2-4 tall
         for (let h=0; h<height; h++) this.addBlock(tx, baseTy - h, 'tex_cactus', 'cactus', true);
       }
-    } else {
+    } else if (biome === 'forest') {
       // Trees on surface (forest)
       const trees = 3 + Math.floor(rng()*4);
       for (let i=0;i<trees;i++){
         const tx = startTx + 2 + Math.floor(rng() * (CHUNK_W - 4));
         const baseTy = SURFACE_Y - 1;
         const height = 3 + Math.floor(rng()*3);
-        // 25% chance to generate an oak (tammi) tree
-        const isTammi = rng() < 0.25;
-        const trunkTex = isTammi ? 'tex_tammi' : 'tex_trunk';
-        const trunkType = isTammi ? 'tammi' : 'trunk';
+        // 25% oak (tammi), 20% birch (koivu), otherwise regular trunk
+        const roll = rng();
+        const isTammi = roll < 0.25;
+        const isKoivu = !isTammi && roll < 0.45;
+        const trunkTex = isTammi ? 'tex_tammi' : (isKoivu ? 'tex_koivu' : 'tex_trunk');
+        const trunkType = isTammi ? 'tammi' : (isKoivu ? 'koivu' : 'trunk');
         for (let h=0; h<height; h++) this.addBlock(tx, baseTy-h, trunkTex, trunkType, true);
         for (let lx=-2; lx<=2; lx++) for (let ly=-2; ly<=0; ly++) {
           if (Math.abs(lx)+Math.abs(ly) <= 3) this.addBlock(tx+lx, baseTy - height + ly, 'tex_leaves', 'leaves', false);
+        }
+        // Add a few horizontal branches sticking out from trunk; store perch spots
+        const branchCount = 1 + Math.floor(rng()*3);
+        for (let b=0;b<branchCount;b++){
+          const by = baseTy - (1 + Math.floor(rng()*Math.max(1,height-1))); // height along trunk
+          const dir = (rng()<0.5) ? -1 : 1;
+          const blen = 1 + Math.floor(rng()*2); // 1-2 tiles
+          const segments = [];
+          for (let k=1;k<=blen;k++){
+            const bx = tx + dir*k;
+            // Avoid overwriting solid blocks; draw as decor image
+            const x = bx*TILE + TILE/2, y = by*TILE + TILE/2;
+            const img = this.add.image(x,y,'tex_branch').setDepth(3);
+            img.setFlipX(dir<0);
+            this.decor.add(img);
+            this.chunks.get(cx)?.decor.push(img);
+            segments.push({ tx: bx, ty: by, img });
+          }
+          // Perch spot at branch tip
+          const ptx = tx + dir*blen; const pty = by;
+          this.perchSpots.push({ tx: ptx, ty: pty });
+          // Track under trunk anchor key (trunk tile coordinate at this height)
+          const anchorKey = `${tx},${by}`;
+          const arr = this.branches.get(anchorKey) || [];
+          arr.push({ dir, segments });
+          this.branches.set(anchorKey, arr);
+        }
+      }
+    } else if (biome === 'snow') {
+      // Sparse snowy trees: trunk with frosty leaves (tinted light)
+      const trees = 2 + Math.floor(rng()*3);
+      for (let i=0;i<trees;i++){
+        const tx = startTx + 2 + Math.floor(rng() * (CHUNK_W - 4));
+        const baseTy = SURFACE_Y - 1;
+        const height = 3 + Math.floor(rng()*2);
+        for (let h=0; h<height; h++) this.addBlock(tx, baseTy-h, 'tex_trunk', 'trunk', true);
+        for (let lx=-2; lx<=2; lx++) for (let ly=-2; ly<=0; ly++) {
+          if (Math.abs(lx)+Math.abs(ly) <= 3) {
+            const leaf = this.addBlock(tx+lx, baseTy - height + ly, 'tex_leaves', 'leaves', false);
+            try { leaf?.setTint?.(0xeef8ff); } catch(e) {}
+          }
         }
       }
     }
@@ -5135,10 +5706,23 @@ class GameScene extends Phaser.Scene {
         const tx = startTx + 2 + Math.floor(rng() * (CHUNK_W - 4));
         const x = tx*TILE + TILE/2;
         const y = (SURFACE_Y-2)*TILE - 10;
-        const choice = rng(); let key='tex_pig'; if (choice<0.33) key='tex_pig'; else if (choice<0.66) key='tex_chicken'; else key='tex_cow';
+  let key='tex_pig';
+  if (biome === 'snow') {
+    const choice = rng();
+    if (choice < 0.6) key = 'tex_polarbear';
+    else if (choice < 0.8) key = 'tex_fox';
+    else key = 'tex_cow';
+  } else {
+    const choice = rng();
+    if (choice < 0.25) key='tex_pig';
+    else if (choice < 0.50) key='tex_chicken';
+    else if (choice < 0.75) key='tex_cow';
+    else key='tex_fox';
+  }
         const a = this.animals.create(x, y, key);
         a.setBounce(0.05, 0.0); a.setCollideWorldBounds(true); a.setVelocityX(rng()<0.5?-50:50);
         a.body.setSize(20, 14).setOffset(4, 6);
+        if (key === 'tex_polarbear') { a.body.setSize(26, 16).setOffset(2, 6); }
         this.chunks.get(cx)?.enemies.push(a); // reuse list for cleanup
       }
     }
@@ -5228,7 +5812,14 @@ class GameScene extends Phaser.Scene {
     }
 
     this.chunks.delete(cx);
-    this.loadedChunks.delete(cx);
+    // Remove decor images in this chunk already handled above by destroying decor
+    // Prune perch spots and branch anchors from this chunk
+  this.perchSpots = this.perchSpots.filter(p=> Math.floor(p.tx/CHUNK_W) !== cx);
+    for (const k of Array.from(this.branches.keys())){
+      const [tx,ty] = k.split(',').map(Number);
+      if (Math.floor(tx/CHUNK_W) === cx) this.branches.delete(k);
+    }
+  this.loadedChunks.delete(cx);
   }
 
   applyWorldDiffForChunk(cx){
@@ -5336,6 +5927,49 @@ class GameScene extends Phaser.Scene {
             this.torches.set(key, { image: img, flicker });
           }
         }
+      }
+    }
+    // Furniture in this chunk
+    if (Array.isArray(this.lampPositions)) {
+      for (const p of this.lampPositions) {
+        const cxp = Math.floor(p.tx/CHUNK_W);
+        if (cxp !== cx) continue;
+        const key = `${p.tx},${p.ty}`;
+        const existing = this.lamps.get(key);
+        if (existing && existing.image?.active) continue;
+        const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+        const img = this.add.image(x,y,'tex_lamp').setDepth(4);
+        this.lamps.set(key, { image: img });
+        this.decor.add(img);
+        this.chunks.get(cx)?.decor.push(img);
+      }
+    }
+    if (Array.isArray(this.sofaPositions)) {
+      for (const p of this.sofaPositions) {
+        const cxp = Math.floor(p.tx/CHUNK_W);
+        if (cxp !== cx) continue;
+        const key = `${p.tx},${p.ty}`;
+        const existing = this.sofas.get(key);
+        if (existing && existing.image?.active) continue;
+        const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+        const img = this.add.image(x,y,'tex_sofa').setDepth(4);
+        this.sofas.set(key, { image: img });
+        this.decor.add(img);
+        this.chunks.get(cx)?.decor.push(img);
+      }
+    }
+    if (Array.isArray(this.tablePositions)) {
+      for (const p of this.tablePositions) {
+        const cxp = Math.floor(p.tx/CHUNK_W);
+        if (cxp !== cx) continue;
+        const key = `${p.tx},${p.ty}`;
+        const existing = this.tables.get(key);
+        if (existing && existing.image?.active) continue;
+        const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+        const img = this.add.image(x,y,'tex_table').setDepth(4);
+        this.tables.set(key, { image: img });
+        this.decor.add(img);
+        this.chunks.get(cx)?.decor.push(img);
       }
     }
 
@@ -5539,6 +6173,17 @@ class GameScene extends Phaser.Scene {
 
   // Health/damage and save/load
   damage(amount){
+    // Shield gates damage while active
+    if ((this.itemBag?.shieldUntil||0) > this.time.now) {
+      // small visual pulse
+      try{
+        if (!this._shieldFx) this._shieldFx = this.add.graphics().setDepth(7);
+        const g=this._shieldFx; g.lineStyle(4,0x9ad3ff,1.0); g.strokeCircle(this.player.x, this.player.y, 28);
+        this.time.delayedCall(80, ()=>{ try{ g.clear(); }catch(_){} });
+        window.playSfx?.('shield');
+      }catch(_){ }
+      return; // no damage applied
+    }
     this.state.health = Math.max(0, this.state.health - amount);
     window.playSfx?.('hit');
     this.updateUI(); this.saveState();
@@ -5647,7 +6292,7 @@ class GameScene extends Phaser.Scene {
   }
 
   saveState(){
-  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, bounceShoes: this.state.bounceShoes, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, soldierCloners: this.soldierClonerPositions, tankCloners: this.tankClonerPositions, torches: this.torchPositions, mines: this.minePositions, rods: this.rodPositions, towers: this.towerPositions, traps: this.trapPositions, weather: this.weather, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic', upgrades: this.upgrades, hunger: this.hunger, food: this.food, itemBag: this.itemBag };
+  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, bounceShoes: this.state.bounceShoes, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, soldierCloners: this.soldierClonerPositions, tankCloners: this.tankClonerPositions, torches: this.torchPositions, mines: this.minePositions, rods: this.rodPositions, towers: this.towerPositions, traps: this.trapPositions, lamps: this.lampPositions, sofas: this.sofaPositions, tables: this.tablePositions, weather: this.weather, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic', upgrades: this.upgrades, hunger: this.hunger, food: this.food, itemBag: this.itemBag };
     try {
       const wid = window.localStorage.getItem('UAG_worldCurrent') || 'world-1';
       localStorage.setItem(`UAG_save_${wid}`, JSON.stringify(data));
@@ -5697,6 +6342,9 @@ class GameScene extends Phaser.Scene {
   if (Array.isArray(d.soldierCloners)) this.soldierClonerPositions = d.soldierCloners.slice(0, 1000);
   if (Array.isArray(d.tankCloners)) this.tankClonerPositions = d.tankCloners.slice(0, 1000);
   if (Array.isArray(d.torches)) this.torchPositions = d.torches.slice(0, 3000);
+  if (Array.isArray(d.lamps)) this.lampPositions = d.lamps.slice(0, 3000);
+  if (Array.isArray(d.sofas)) this.sofaPositions = d.sofas.slice(0, 3000);
+  if (Array.isArray(d.tables)) this.tablePositions = d.tables.slice(0, 3000);
   if (Array.isArray(d.traps)) this.trapPositions = d.traps.slice(0, 3000);
   if (Array.isArray(d.mines)) this.minePositions = d.mines.slice(0, 3000);
   if (Array.isArray(d.rods)) this.rodPositions = d.rods.slice(0, 2000);
@@ -5717,6 +6365,9 @@ class GameScene extends Phaser.Scene {
     this.itemBag.invis = !!d.itemBag.invis;
     this.itemBag.timeCdUntil = d.itemBag.timeCdUntil||0;
     this.itemBag.timeActiveUntil = d.itemBag.timeActiveUntil||0;
+    this.itemBag.speedUntil = d.itemBag.speedUntil||0;
+    this.itemBag.shieldUntil = d.itemBag.shieldUntil||0;
+    this.itemBag.decoyUntil = d.itemBag.decoyUntil||0;
   }
   // Ensure pistol, cannon, minigun, knife, sniper & bazooka exist for older saves
   if (!this.tools.owned?.pistol) this.tools.owned.pistol = true;
@@ -5861,6 +6512,7 @@ class GameScene extends Phaser.Scene {
   const order = ['hand','wooden','stone','iron',
     'pistol','pistol_copper',
     'bow','bow_copper',
+    'crossbow','crossbow_copper',
     'cannon',
     'minigun','minigun_copper',
     'ak47','ak47_copper',
@@ -5871,10 +6523,14 @@ class GameScene extends Phaser.Scene {
     'nuke','nuke_copper',
     'wizard','flame',
     'pamppu','pamppu_copper',
-  'mine','rod','tower','trap','soldiercloner','tankcloner','spear',
+  'mine','rod','tower','trap','lamp','sofa','table','soldiercloner','tankcloner','spear',
     'plane','plane_copper',
     'hook','cloner','teleport','slimecloner','torch'];
   if (!this.tools.owned?.hook) this.tools.owned.hook = true;
+  if (!this.tools.owned?.crossbow) this.tools.owned.crossbow = true;
+  if (!this.tools.owned?.lamp) this.tools.owned.lamp = true;
+  if (!this.tools.owned?.sofa) this.tools.owned.sofa = true;
+  if (!this.tools.owned?.table) this.tools.owned.table = true;
     let idx = order.indexOf(this.tools.equipped);
     for (let i=1;i<=order.length;i++){
       const next = order[(idx+i)%order.length];
@@ -5891,6 +6547,9 @@ class GameScene extends Phaser.Scene {
   if (this.tools.equipped === 'trap') this.showToast('Ansat: R vaihtaa tyyppiä (piikki, karhu, lankaviritin). Oikea asettaa, vasen poistaa.');
   if (this.tools.equipped === 'soldiercloner') this.showToast('Sotilasklooni: oikea aseta laite, vasen poista. Tekee AK-47 -sotilaita limoja ja zombeja vastaan.');
   if (this.tools.equipped === 'tankcloner') this.showToast('Tankkiklooni: oikea aseta laite, vasen poista. Tekee tankkeja (AK-47 + ylhäältä putoava bazooka).');
+  if (this.tools.equipped === 'lamp') this.showToast('Lamppu: oikea asettaa, vasen poistaa. Vain koriste.');
+  if (this.tools.equipped === 'sofa') this.showToast('Sohva: oikea asettaa, vasen poistaa. Vain koriste.');
+  if (this.tools.equipped === 'table') this.showToast('Pöytä: oikea asettaa, vasen poistaa. Vain koriste.');
   }
 
   // Small deterministic RNG for reproducible world
@@ -6323,7 +6982,7 @@ window.addEventListener('load', () => {
       s.upgrades.copperUnlocked = true;
       // Grant copper variants for all weapons
       const w = s.tools.owned;
-      ['pistol','bow','minigun','ak47','knife','sniper','bazooka','grenade','nuke','pamppu','plane'].forEach(t=>{ const k=t+'_copper'; if (w[k]===false) w[k]=true; });
+  ['pistol','bow','crossbow','minigun','ak47','knife','sniper','bazooka','grenade','nuke','pamppu','plane'].forEach(t=>{ const k=t+'_copper'; if (w[k]===false) w[k]=true; });
       s.updateUI(); s.updateToolSelect(); s.saveState();
       s.showToast?.('Kupari-aseet avattu!');
     }
