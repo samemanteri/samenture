@@ -55,7 +55,7 @@ class GameScene extends Phaser.Scene {
 
     // Tool system
     this.tools = {
-          owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, bow: true, crossbow: true, cannon: true, minigun: true, ak47: true, knife: true, spear: true, sniper: true, rifle: true, bazooka: true, grenade: true, nuke: true, plane: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true, wizard: true, flame: true, pamppu: true, mine: true, rod: true, tower: true, trap: true,
+          owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, bow: true, crossbow: true, cannon: true, minigun: true, ak47: true, knife: true, spear: true, sniper: true, rifle: true, bazooka: true, grenade: true, nuke: true, plane: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true, wizard: true, flame: true, pamppu: true, mine: true, rod: true, fishingrod: true, tower: true, trap: true,
             lamp: true, sofa: true,
            pistol_copper: false, bow_copper: false, crossbow_copper: false, minigun_copper: false, ak47_copper: false, knife_copper: false, sniper_copper: false, bazooka_copper: false, grenade_copper: false, nuke_copper: false, pamppu_copper: false, plane_copper: false },
       equipped: 'pistol',
@@ -77,6 +77,8 @@ class GameScene extends Phaser.Scene {
 
   // Grappling hook state
   this.hook = { active: false, anchor: null };
+  // Fishing rod state
+  this.fishing = { active: false, bobber: null, baseY: 0, nextNibbleAt: 0, cooldownUntil: 0 };
 
   // Ninja mode state
   this.ninja = { active: false, swordLevel: 1, knifeLevel: 1, strikeLevel: 1, striking: false, strikeEndAt: 0 };
@@ -680,6 +682,19 @@ class GameScene extends Phaser.Scene {
   g.fillStyle(0x222222,1); g.fillRect(23,5,2,2); // eye
   g.fillStyle(0x555555,1); for(let i=0;i<4;i++){ g.fillRect(4+i*5,16,4,4);} // legs
   g.generateTexture('tex_wolf',30,20); g.clear();
+  // Fish texture (simple blue fish with tail)
+  g.fillStyle(0x3aa0ff,1); g.fillRect(2,5,16,6); // body
+  g.fillStyle(0x2b7ccc,1); g.fillRect(16,6,6,4); // tail base
+  g.fillStyle(0x2b7ccc,1); g.fillTriangle(22,8, 16,6, 16,10); // tail fin
+  g.fillStyle(0xffffff,1); g.fillCircle(6,8,1.5); // eye white
+  g.fillStyle(0x000000,1); g.fillCircle(6,8,0.8); // pupil
+  g.generateTexture('tex_fish',24,14); g.clear();
+  // Bobber texture (red/white float)
+  g.fillStyle(0xffffff,1); g.fillCircle(5,6,4);
+  g.fillStyle(0xcc3333,1); g.fillRect(1,2,8,4); // top red cap
+  g.fillStyle(0x882222,1); g.fillRect(4,0,2,3); // small peg
+  g.lineStyle(1,0x222222,0.9); g.strokeCircle(5,6,4);
+  g.generateTexture('tex_bobber',10,10); g.clear();
   // Fox texture (orange body, white chest, dark legs)
   g.fillStyle(0xd97a1d,1); g.fillRect(0,6,26,10); // body
   g.fillStyle(0xe08a34,1); g.fillRect(16,2,10,8); // head
@@ -894,6 +909,8 @@ class GameScene extends Phaser.Scene {
   this.drones = this.physics.add.group({ allowGravity: false });
   this.wolves = this.physics.add.group();
   this.physics.add.collider(this.wolves, this.platforms);
+  // Fishes (swim in water)
+  this.fishes = this.physics.add.group({ allowGravity: false });
   // Neutral animals
   this.animals = this.physics.add.group();
   this.physics.add.collider(this.animals, this.platforms);
@@ -917,6 +934,8 @@ class GameScene extends Phaser.Scene {
   this.vineGfx = this.add.graphics();
   // Cannon aim graphics (for tarkka mode)
   this.cannonAimGfx = this.add.graphics();
+  // Fishing line graphics
+  this.fishingGfx = this.add.graphics();
 
     // Initialize endless world (generate starting chunks around x=0)
     this.initInfiniteWorld();
@@ -950,6 +969,11 @@ class GameScene extends Phaser.Scene {
   this.physics.add.overlap(this.bullets, this.animals, (bullet, animal)=>{
     if (bullet?.getData && bullet.getData('fromEnemy')) { bullet.destroy(); return; }
     const x=animal.x,y=animal.y; animal.destroy(); this.dropMeat(x,y); bullet.destroy();
+  }, null, this);
+  // Player bullets vs fish (enemies don't kill fish)
+  this.physics.add.overlap(this.bullets, this.fishes, (bullet, fish)=>{
+    if (bullet?.getData && bullet.getData('fromEnemy')) { bullet.destroy(); return; }
+    const x=fish.x, y=fish.y; fish.destroy(); this.dropMeat(x,y); bullet.destroy();
   }, null, this);
   // Allies collide with terrain
   this.physics.add.collider(this.soldiers, this.platforms);
@@ -1070,7 +1094,7 @@ class GameScene extends Phaser.Scene {
           this.placeBlueprintAtTiles(tx,ty);
           return;
         }
-    if (this.tools.equipped === 'cannon') this.placeCannon(pointer);
+  if (this.tools.equipped === 'cannon') this.placeCannon(pointer);
         else if (this.tools.equipped === 'teleport') this.placePortal(pointer);
         else if (this.tools.equipped === 'slimecloner') this.placeSlimeCloner(pointer);
   else if (this.tools.equipped === 'soldiercloner') this.placeSoldierCloner(pointer);
@@ -1080,6 +1104,7 @@ class GameScene extends Phaser.Scene {
   else if (this.tools.equipped === 'trap') this.placeTrap(pointer);
         else if (this.tools.equipped === 'mine') this.placeMine(pointer);
         else if (this.tools.equipped === 'rod') this.placeRod(pointer);
+    else if (this.tools.equipped === 'fishingrod') this.castFishing(pointer);
     else if (this.tools.equipped === 'lamp') this.placeLamp(pointer);
     else if (this.tools.equipped === 'sofa') this.placeSofa(pointer);
     else if (this.tools.equipped === 'table') this.placeTable(pointer);
@@ -1098,6 +1123,7 @@ class GameScene extends Phaser.Scene {
           else if (this.tools.equipped === 'cloner') this.spawnClone(pointer);
           else if (this.tools.equipped === 'mine') this.placeMine(pointer);
           else if (this.tools.equipped === 'rod') this.placeRod(pointer);
+          else if (this.tools.equipped === 'fishingrod') this.castFishing(pointer);
           else if (this.tools.equipped === 'lamp') this.placeLamp(pointer);
           else if (this.tools.equipped === 'sofa') this.placeSofa(pointer);
           else if (this.tools.equipped === 'table') this.placeTable(pointer);
@@ -1162,6 +1188,7 @@ class GameScene extends Phaser.Scene {
           } else if (this.tools.equipped === 'cloner') {
             this.spawnClone(pointer);
           } else {
+            if (this.tools.equipped === 'fishingrod') { this.reelFishing(); return; }
             this.attemptMine(pointer);
           }
         }
@@ -1431,7 +1458,7 @@ class GameScene extends Phaser.Scene {
   }
 
   update() {
-  if (!this.started || this.isPaused) { this.hookGfx?.clear(); this.vineGfx?.clear(); this.cannonAimGfx?.clear(); return; }
+  if (!this.started || this.isPaused) { this.hookGfx?.clear(); this.vineGfx?.clear(); this.cannonAimGfx?.clear(); this.fishingGfx?.clear(); return; }
     // Time Stop upkeep
     if (this._timeStopped) {
       if (this.time.now >= (this.itemBag.timeActiveUntil||0)) {
@@ -1441,6 +1468,25 @@ class GameScene extends Phaser.Scene {
       } else {
         this.bullets?.children?.iterate?.((b)=>{ if(!b||!b.body) return; b.body.velocity.x=0; b.body.velocity.y=0; b.body.allowGravity=false; });
       }
+    }
+    // Fishing line draw + nibble logic
+    this.fishingGfx?.clear();
+    if (this.fishing?.active && this.fishing.bobber && this.fishing.bobber.active) {
+      try {
+        // slight bobbing
+        const t = this.time.now * 0.005;
+        this.fishing.bobber.y = this.fishing.baseY + Math.sin(t) * 1.5;
+        // draw line from player hand-ish to bobber
+        this.fishingGfx.lineStyle(2, 0xffffff, 0.9);
+        this.fishingGfx.beginPath();
+        this.fishingGfx.moveTo(this.player.x, this.player.y - 8);
+        this.fishingGfx.lineTo(this.fishing.bobber.x, this.fishing.bobber.y);
+        this.fishingGfx.strokePath();
+        // auto nibble -> catch
+        if (this.time.now >= (this.fishing.nextNibbleAt||0)) {
+          this._doFishingCatch();
+        }
+      } catch(e) {}
     }
     // Jetpack boost: Up-alone (airborne) or Down->Up quick combo
     if (this.itemBag?.jetpack) {
@@ -3650,6 +3696,64 @@ class GameScene extends Phaser.Scene {
     this.saveState();
   }
 
+  // --- Fishing (Onki) ---
+  castFishing(pointer){
+    if ((this.fishing?.cooldownUntil||0) > this.time.now) { this.showToast('Odotetaan...'); return; }
+    // If already active, treat as reel
+    if (this.fishing?.active) { this.reelFishing(); return; }
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(wp.x / TILE), ty = Math.floor(wp.y / TILE);
+    const key = `${tx},${ty}`;
+    if (!this.waterTiles.has(key)) { this.showToast('Tarvitsee vettä'); return; }
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    try { this.fishing.bobber?.destroy(); } catch(e) {}
+    const bob = this.add.image(x, y, 'tex_bobber').setDepth(6);
+    this.fishing = this.fishing || {};
+    this.fishing.active = true;
+    this.fishing.bobber = bob;
+    this.fishing.baseY = y;
+    // Bite between ~0.9s and 1.8s
+    this.fishing.nextNibbleAt = this.time.now + Phaser.Math.Between(900, 1800);
+    this.showToast('Heitit ongen');
+  }
+  reelFishing(){
+    if (!this.fishing?.active) { this.showToast('Ei siimaa vedettävänä'); return; }
+    // Early reel: small chance to get something; otherwise nothing
+    if (Math.random() < 0.3) {
+      const bx = this.fishing.bobber?.x||this.player.x, by = this.fishing.bobber?.y||this.player.y;
+      this.dropMeat(bx, by);
+      this.showToast('Nappasi!');
+    } else {
+      this.showToast('Ei kalaa');
+    }
+    try { this.fishing.bobber?.destroy(); } catch(e) {}
+    this.fishing.active = false;
+    this.fishing.bobber = null;
+    this.fishingGfx?.clear();
+    this.fishing.cooldownUntil = this.time.now + 800;
+  }
+  _doFishingCatch(){
+    if (!this.fishing?.active) return;
+    // Prefer catching a nearby fish entity; else drop meat as generic fish
+    let caught = false;
+    const bx = this.fishing.bobber?.x||this.player.x, by = this.fishing.bobber?.y||this.player.y;
+    const R2 = (80*80);
+    try {
+      this.fishes?.children?.iterate?.((f)=>{
+        if (caught || !f || !f.active) return;
+        const dx=f.x-bx, dy=f.y-by; if (dx*dx+dy*dy <= R2) { f.destroy(); caught = true; }
+      });
+    } catch(e) {}
+    if (caught) { this.dropMeat(bx, by); this.showToast('Sait kalan!'); }
+    else if (Math.random()<0.5) { this.dropMeat(bx, by); this.showToast('Sait kalan!'); }
+    else { this.showToast('Ei kalaa'); }
+    try { this.fishing.bobber?.destroy(); } catch(e) {}
+    this.fishing.active = false;
+    this.fishing.bobber = null;
+    this.fishingGfx?.clear();
+    this.fishing.cooldownUntil = this.time.now + 800;
+  }
+
   // Storm tick: start/stop storms and schedule lightning while active
   maybeRunStorm(){
     const w = this.weather;
@@ -4012,7 +4116,7 @@ class GameScene extends Phaser.Scene {
     const shots = 5;
     for (let i=0;i<shots;i++){
       this.time.delayedCall(i*60, ()=>{
-  this.shootBullet(pointer, { spread: 0.10, markMinigun: true, copper: !!opts.copper });
+  this.shootBullet(pointer, { spread: 0.06, markMinigun: true, copper: !!opts.copper });
       });
     }
   }
@@ -4020,6 +4124,13 @@ class GameScene extends Phaser.Scene {
   shootSniper(pointer, opts = {}){
     // Long range 17 tiles, faster projectile
     const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    // Mild aim assist: snap to nearest enemy near cursor
+    {
+      const r = 72; let best=null, bestD2=r*r;
+      const consider = (grp)=> grp?.children?.iterate?.(e=>{ if(!e||!e.active) return; const dx=e.x-worldPoint.x, dy=e.y-worldPoint.y; const d2=dx*dx+dy*dy; if(d2<bestD2){bestD2=d2; best=e;} });
+      consider(this.enemySoldiers); consider(this.zombies); consider(this.slimes); consider(this.oppos); consider(this.birds); consider(this.wolves); consider(this.bosses);
+      if (best) { worldPoint.x = best.x; worldPoint.y = best.y; }
+    }
     const dirX = worldPoint.x - this.player.x;
     const dirY = worldPoint.y - this.player.y;
     const dist = Math.sqrt(dirX*dirX + dirY*dirY);
@@ -4052,6 +4163,13 @@ class GameScene extends Phaser.Scene {
   shootRifle(pointer){
     // Rifle: medium range + cluster 6 bullets appearing 9 tiles ahead
     const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    // Mild aim assist: snap to nearest enemy near cursor
+    {
+      const r = 72; let best=null, bestD2=r*r;
+      const consider = (grp)=> grp?.children?.iterate?.(e=>{ if(!e||!e.active) return; const dx=e.x-wp.x, dy=e.y-wp.y; const d2=dx*dx+dy*dy; if(d2<bestD2){bestD2=d2; best=e;} });
+      consider(this.enemySoldiers); consider(this.zombies); consider(this.slimes); consider(this.oppos); consider(this.birds); consider(this.wolves); consider(this.bosses);
+      if (best) { wp.x = best.x; wp.y = best.y; }
+    }
     const dx = wp.x - this.player.x;
     const dy = wp.y - this.player.y;
     const dist = Math.sqrt(dx*dx + dy*dy); if (!dist) return;
@@ -4688,6 +4806,13 @@ class GameScene extends Phaser.Scene {
 
   shootBullet(pointer, opts = {}) {
     const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    // Mild aim assist: snap to nearest enemy near cursor (disabled if explicitly set)
+    if (opts.aimAssist !== false) {
+      const r = 72; let best=null, bestD2=r*r;
+      const consider = (grp)=> grp?.children?.iterate?.(e=>{ if(!e||!e.active) return; const dx=e.x-worldPoint.x, dy=e.y-worldPoint.y; const d2=dx*dx+dy*dy; if(d2<bestD2){bestD2=d2; best=e;} });
+      consider(this.enemySoldiers); consider(this.zombies); consider(this.slimes); consider(this.oppos); consider(this.birds); consider(this.wolves); consider(this.bosses);
+      if (best) { worldPoint.x = best.x; worldPoint.y = best.y; }
+    }
     const dirX = worldPoint.x - this.player.x;
     const dirY = worldPoint.y - this.player.y;
     const dist = Math.sqrt(dirX*dirX + dirY*dirY);
@@ -4715,13 +4840,13 @@ class GameScene extends Phaser.Scene {
   else { window.playSfx?.('shoot'); }
   if (this.tools.equipped === 'minigun' || opts.markMinigun) bullet.setData('isMinigun', true);
   if (this.mode.current === 'web') bullet.setData('isWeb', true);
-  const speed = 600; // px per second
+  const speed = 750; // px per second (faster for easier hits)
   bullet.setVelocity(normX * speed, normY * speed);
     bullet.setRotation(Math.atan2(normY, normX));
   if (opts.copper) bullet.setData('isCopper', true);
-  // Destroy after 4 tiles distance (time = distance / speed)
+  // Destroy after 6 tiles distance (time = distance / speed)
   const extraTiles = opts.copper ? 17 : 0;
-  const lifeMs = ((4 + extraTiles) * TILE / speed) * 1000;
+  const lifeMs = ((6 + extraTiles) * TILE / speed) * 1000;
   this.time.delayedCall(lifeMs, () => { if (bullet.active) bullet.destroy(); });
     // On each step, check collision with cannons by tile sampling (lightweight)
     bullet._lastCheck = 0;
@@ -4858,6 +4983,13 @@ class GameScene extends Phaser.Scene {
 
   // Spawn a bullet from (sx,sy) to (tx,ty). opts: { speed, lifeTiles, spread, ignoreCannonKey }
   spawnBulletFrom(sx, sy, tx, ty, opts={}){
+    // Mild aim assist (skips for enemy projectiles)
+    if (!opts.fromEnemy && opts.aimAssist !== false) {
+      const r = 72; let best=null, bestD2=r*r;
+      const consider = (grp)=> grp?.children?.iterate?.(e=>{ if(!e||!e.active) return; const dx=e.x-tx, dy=e.y-ty; const d2=dx*dx+dy*dy; if(d2<bestD2){bestD2=d2; best=e;} });
+      consider(this.enemySoldiers); consider(this.zombies); consider(this.slimes); consider(this.oppos); consider(this.birds); consider(this.wolves); consider(this.bosses);
+      if (best) { tx = best.x; ty = best.y; }
+    }
     const dirX = tx - sx, dirY = ty - sy;
     const dist = Math.hypot(dirX, dirY) || 1;
     let nx = dirX / dist, ny = dirY / dist;
@@ -4879,7 +5011,7 @@ class GameScene extends Phaser.Scene {
   if (opts.ignoreCannonKey) b.setData('ignoreCannonKey', opts.ignoreCannonKey);
   if (opts.fromEnemy) b.setData('fromEnemy', true);
   if (opts.noBlockDamage) b.setData('noBlockDamage', true);
-    const lifeMs = ((opts.lifeTiles || 6) * TILE / speed) * 1000;
+    const lifeMs = ((opts.lifeTiles || 8) * TILE / speed) * 1000;
     this.time.delayedCall(lifeMs, ()=>{ if (b.active) b.destroy(); });
     // Also guard against cannon removal via tile-scan hook if present
     b._lastCheck = 0;
@@ -5126,7 +5258,7 @@ class GameScene extends Phaser.Scene {
       const hv = Math.max(0, Math.min(this.hunger.value|0, this.hunger.max));
       slots[4].textContent += (slots[4].textContent? ' | ' : '') + `Nälkä: ${hv}/${this.hunger.max} (Liha: ${this.food.meat})`;
     // Show equipped tool
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', crossbow:'Varsijousi', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', rifle:'Kivääri', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', tower:'Ampumatorni', lamp:'Lamppu', sofa:'Sohva', table:'Pöytä',
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', crossbow:'Varsijousi', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', rifle:'Kivääri', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', fishingrod:'Onki', tower:'Ampumatorni', lamp:'Lamppu', sofa:'Sohva', table:'Pöytä',
     pistol_copper:'Pistooli (Kupari)', bow_copper:'Jousipyssy (Kupari)', crossbow_copper:'Varsijousi (Kupari)', minigun_copper:'Minigun (Kupari)', ak47_copper:'AK-47 (Kupari)', knife_copper:'Puukko (Kupari)', sniper_copper:'Tarkka-ase (Kupari)', bazooka_copper:'Bazooka (Kupari)', grenade_copper:'Kranaatti (Kupari)', nuke_copper:'Ydinase (Kupari)', pamppu_copper:'Pamppu (Kupari)', plane_copper:'Lentokone (Kupari)'
   };
   const eq = this.tools.equipped;
@@ -5206,7 +5338,7 @@ class GameScene extends Phaser.Scene {
     const select = document.getElementById('toolSelect');
     if (!select) return;
     select.innerHTML = '';
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', crossbow:'Varsijousi', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', spear:'Keihäs', sniper:'Tarkka-ase', rifle:'Kivääri', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', tower:'Ampumatorni', trap:'Ansat', lamp:'Lamppu', sofa:'Sohva', table:'Pöytä',
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', crossbow:'Varsijousi', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', spear:'Keihäs', sniper:'Tarkka-ase', rifle:'Kivääri', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', fishingrod:'Onki', tower:'Ampumatorni', trap:'Ansat', lamp:'Lamppu', sofa:'Sohva', table:'Pöytä',
   pistol_copper:'Pistooli (Kupari)', bow_copper:'Jousipyssy (Kupari)', crossbow_copper:'Varsijousi (Kupari)', minigun_copper:'Minigun (Kupari)', ak47_copper:'AK-47 (Kupari)', knife_copper:'Puukko (Kupari)', sniper_copper:'Tarkka-ase (Kupari)', bazooka_copper:'Bazooka (Kupari)', grenade_copper:'Kranaatti (Kupari)', nuke_copper:'Ydinase (Kupari)', pamppu_copper:'Pamppu (Kupari)', plane_copper:'Lentokone (Kupari)'
   };
     for (const tool in this.tools.owned) {
@@ -5529,7 +5661,11 @@ class GameScene extends Phaser.Scene {
     const dist = Math.abs(cx);
     const centerNoAlt = 8;       // chunks around center: always forest
     const farAlwaysAlt = 25;     // beyond this: always alt biome per side
-    let biome;
+  let biome;
+  // Special ocean bands: coarse groups of 4 chunks can become ocean away from spawn
+  const g = Math.floor(cx / 4);
+  const rngG = this.makeRandom((WORLD_SEED ^ (g*912367)) >>> 0);
+  const isOceanBand = (Math.abs(g) >= 3 && Math.abs(g) <= 8 && rngG() < 0.28);
     if (dist <= centerNoAlt) {
       biome = 'forest';
     } else if (dist >= farAlwaysAlt) {
@@ -5541,6 +5677,7 @@ class GameScene extends Phaser.Scene {
       if (cx >= 0) biome = (rng() < p) ? 'desert' : 'forest';
       else biome = (rng() < p) ? 'snow' : 'forest';
     }
+    if (isOceanBand) biome = 'ocean';
 
     // Surface line and underground fill per biome
     for (let tx = startTx; tx <= endTx; tx++) {
@@ -5558,6 +5695,24 @@ class GameScene extends Phaser.Scene {
           const type = (tex === 'tex_stone') ? 'stone' : 'snow';
           this.addBlock(tx, ty, tex, type, true);
         }
+      } else if (biome === 'ocean') {
+        // Ocean: no surface block, water from surface down to a sandy seafloor, stone below
+        // Seafloor undulation per column
+        const depth = 6 + Math.floor(rng()*4); // 6-9 tiles below surface
+        const floorTy = SURFACE_Y + depth;
+        // Place sandy floor
+        this.addBlock(tx, floorTy, 'tex_sand', 'sand', true);
+        // Below floor: stone
+        for (let ty = floorTy+1; ty < WORLD_TILES_Y; ty++) {
+          this.addBlock(tx, ty, 'tex_stone', 'stone', true);
+        }
+        // Water column from surface-1 down to just above floor
+        for (let ty = SURFACE_Y-1; ty < floorTy; ty++) {
+          const key = `${tx},${ty}`;
+          const spr = this.blocks.get(key);
+          if (spr) { spr.destroy(); this.blocks.delete(key); }
+          this.addWater(tx, ty);
+        }
       } else { // forest
         this.addBlock(tx, SURFACE_Y, 'tex_ground', 'ground', true);
         for (let ty = SURFACE_Y+1; ty < WORLD_TILES_Y; ty++) {
@@ -5568,8 +5723,8 @@ class GameScene extends Phaser.Scene {
       }
     }
 
-  // Create some underground water ponds in this chunk (rare in desert)
-  const ponds = biome === 'desert' ? (rng()<0.15?1:0) : Math.floor(rng()*2); // desert rare oases
+  // Create some underground water ponds in this chunk (rare in desert); none in ocean
+  const ponds = biome === 'ocean' ? 0 : (biome === 'desert' ? (rng()<0.15?1:0) : Math.floor(rng()*2));
     for (let p=0; p<ponds; p++) {
       const pondW = 2 + Math.floor(rng()*3); // 2-4 tiles wide
       const pondX = startTx + 2 + Math.floor(rng() * Math.max(1, CHUNK_W - pondW - 4));
@@ -5664,6 +5819,33 @@ class GameScene extends Phaser.Scene {
           }
         }
       }
+    } else if (biome === 'ocean') {
+      // Spawn some fish within water column
+      const fishCount = 3 + Math.floor(rng()*3);
+      for (let i=0;i<fishCount;i++){
+        const tx = startTx + 2 + Math.floor(rng() * (CHUNK_W - 4));
+        const depth = 6 + Math.floor(rng()*4);
+        const floorTy = SURFACE_Y + depth;
+        const ty = (SURFACE_Y - 1) + Math.floor(rng() * Math.max(1, depth - 1));
+        const x = tx*TILE + TILE/2;
+        const y = ty*TILE + TILE/2;
+        const f = this.fishes.create(x, y, 'tex_fish');
+        f.setDepth(4);
+        f._phase = rng()*Math.PI*2;
+        f._dir = (rng()<0.5?-1:1);
+        f.setVelocityX(f._dir * (40 + rng()*60));
+        f.preUpdate = (t,dt)=>{
+          Phaser.Physics.Arcade.Sprite.prototype.preUpdate.call(f,t,dt);
+          // gentle bobbing
+          f.setVelocityY(Math.sin((t+f._phase)*0.002)*22);
+          // If outside water, flip direction
+          const wtx = Math.floor(f.x / TILE), wty = Math.floor(f.y / TILE);
+          if (!this.waterTiles.has(`${wtx},${wty}`)) {
+            f._dir *= -1; f.setVelocityX(f._dir * Math.abs(f.body.velocity.x||60));
+          }
+        };
+        this.chunks.get(cx)?.enemies.push(f);
+      }
     }
 
     // Gems (including some red)
@@ -5684,7 +5866,7 @@ class GameScene extends Phaser.Scene {
 
     // Enemies per chunk
     // Bird
-    if (rng() < 0.8){
+    if (biome !== 'ocean' && rng() < 0.8){
       const x = (startTx+Math.floor(rng()*CHUNK_W))*TILE + TILE/2;
       const y = 80 + rng() * (SURFACE_Y*TILE - 120);
       const bird = this.birds.create(x, y, 'tex_bird');
@@ -6523,7 +6705,7 @@ class GameScene extends Phaser.Scene {
     'nuke','nuke_copper',
     'wizard','flame',
     'pamppu','pamppu_copper',
-  'mine','rod','tower','trap','lamp','sofa','table','soldiercloner','tankcloner','spear',
+  'mine','rod','fishingrod','tower','trap','lamp','sofa','table','soldiercloner','tankcloner','spear',
     'plane','plane_copper',
     'hook','cloner','teleport','slimecloner','torch'];
   if (!this.tools.owned?.hook) this.tools.owned.hook = true;
