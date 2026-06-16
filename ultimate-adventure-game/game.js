@@ -55,8 +55,8 @@ class GameScene extends Phaser.Scene {
 
     // Tool system
     this.tools = {
-          owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, bow: true, crossbow: true, cannon: true, minigun: true, ak47: true, knife: true, spear: true, sniper: true, rifle: true, bazooka: true, grenade: true, nuke: true, plane: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true, wizard: true, flame: true, pamppu: true, mine: true, rod: true, fishingrod: true, tower: true, trap: true,
-            lamp: true, sofa: true,
+            owned: { hand: true, wooden: false, stone: false, iron: false, pistol: true, bow: true, crossbow: true, cannon: true, minigun: true, ak47: true, knife: true, spear: true, sniper: true, rifle: true, bazooka: true, grenade: true, nuke: true, plane: true, hook: true, cloner: true, teleport: true, slimecloner: true, torch: true, campfire: true, wizard: true, flame: true, pamppu: true, mine: true, rod: true, fishingrod: true, tower: true, trap: true, nightbreaker: true,
+              lamp: true, sofa: true,
            pistol_copper: false, bow_copper: false, crossbow_copper: false, minigun_copper: false, ak47_copper: false, knife_copper: false, sniper_copper: false, bazooka_copper: false, grenade_copper: false, nuke_copper: false, pamppu_copper: false, plane_copper: false },
       equipped: 'pistol',
       cannonMode: 'minigun' // 'minigun' | 'sniper'
@@ -93,7 +93,7 @@ class GameScene extends Phaser.Scene {
   // Vine (liaani) state
   this.vine = { active:false, reeling:false, anchor:null, length:0 };
 
-  // Game mode: 'classic' | 'galactic' | 'web'
+  // Game mode: 'classic' | 'galactic' | 'web' | 'wizard'
   this.mode = { current: 'classic' };
 
   // Cloner tool and clones
@@ -162,6 +162,13 @@ class GameScene extends Phaser.Scene {
   // Torches (light sources) to block zombie spawns
   this.torchPositions = []; // persisted [{tx,ty}]
   this.torches = new Map(); // key -> { image }
+  // Campfires (nuotio): light + safe zone (zombies avoid area)
+  this.campfirePositions = []; // persisted [{tx,ty}]
+  this.campfires = new Map(); // key -> { image, flicker }
+  
+  // Nightbreakers (yönpoistaja): strong light + bigger safe zone and darkness reducer
+  this.nightbreakerPositions = []; // persisted [{tx,ty}]
+  this.nightbreakers = new Map(); // key -> { image, flicker }
   // Traps
   this.trapPositions = []; // [{tx,ty,type,dir}]
   this.traps = new Map(); // key -> { image, zone, type, dir, nextAt }
@@ -516,6 +523,18 @@ class GameScene extends Phaser.Scene {
   g.lineStyle(2,0x6b3a1b,1); g.strokeRect(TILE/2-2, TILE-18, 4, 16);
   g.generateTexture('tex_torch', TILE, TILE); g.clear();
 
+  // Campfire texture (logs + flame + stone ring)
+  const cw = TILE, ch = TILE;
+  g.fillStyle(0x666666, 1); // stone ring
+  g.fillCircle(cw*0.50, ch*0.72, ch*0.20);
+  g.fillStyle(0x7a4b2a, 1); // logs
+  g.fillRect(cw*0.30, ch*0.70, cw*0.40, ch*0.08); // horizontal log
+  g.fillRect(cw*0.46, ch*0.58, cw*0.08, ch*0.28); // vertical log (fake cross without rotation)
+  g.fillStyle(0xffc04d, 1); g.fillCircle(cw*0.50, ch*0.48, ch*0.22); // flame outer
+  g.fillStyle(0xff7a1a, 0.95); g.fillCircle(cw*0.50, ch*0.48, ch*0.16); // flame inner
+  g.fillStyle(0xffffff, 0.9); g.fillCircle(cw*0.50, ch*0.46, ch*0.08); // flame core
+  g.generateTexture('tex_campfire', TILE, TILE); g.clear();
+
   // Branch texture (simple wooden branch)
   g.fillStyle(0x7a4f2b, 1.0);
   g.fillRect(TILE*0.05, TILE*0.45, TILE*0.9, TILE*0.08);
@@ -531,6 +550,16 @@ class GameScene extends Phaser.Scene {
   g.fillStyle(0xfff1b0, 1.0);
   g.fillTriangle(TILE*0.35, TILE*0.28, TILE*0.65, TILE*0.28, TILE*0.5, TILE*0.18); // shade
   g.generateTexture('tex_lamp', TILE, TILE); g.clear();
+
+  // Nightbreaker texture (glowing crystal obelisk)
+  const nbw = TILE, nbh = TILE;
+  g.fillStyle(0x222222).fillRect(nbw/2-6, nbh-10, 12, 10); // base
+  g.fillStyle(0x4466ff).fillRect(nbw/2-4, 8, 8, nbh-18); // core
+  g.fillStyle(0x88aaff, 0.9).fillRect(nbw/2-3, 10, 6, nbh-22);
+  // side shards
+  g.fillStyle(0x3355dd).fillRect(nbw/2-10, 18, 4, 20);
+  g.fillStyle(0x3355dd).fillRect(nbw/2+6, 16, 4, 24);
+  g.generateTexture('tex_nightbreaker', nbw, nbh); g.clear();
 
   // Sofa texture (two-seat)
   g.fillStyle(0x5a2d2d, 1.0); g.fillRect(TILE*0.1, TILE*0.55, TILE*0.8, TILE*0.35); // seat
@@ -1099,7 +1128,9 @@ class GameScene extends Phaser.Scene {
         else if (this.tools.equipped === 'slimecloner') this.placeSlimeCloner(pointer);
   else if (this.tools.equipped === 'soldiercloner') this.placeSoldierCloner(pointer);
   else if (this.tools.equipped === 'tankcloner') this.placeTankCloner(pointer);
-        else if (this.tools.equipped === 'torch') this.placeTorch(pointer);
+  else if (this.tools.equipped === 'torch') this.placeTorch(pointer);
+  else if (this.tools.equipped === 'campfire') this.placeCampfire(pointer);
+  else if (this.tools.equipped === 'nightbreaker') this.placeNightbreaker(pointer);
   else if (this.tools.equipped === 'tower') this.placeTower(pointer);
   else if (this.tools.equipped === 'trap') this.placeTrap(pointer);
         else if (this.tools.equipped === 'mine') this.placeMine(pointer);
@@ -1118,6 +1149,8 @@ class GameScene extends Phaser.Scene {
           else if (this.tools.equipped === 'soldiercloner') this.placeSoldierCloner(pointer);
           else if (this.tools.equipped === 'tankcloner') this.placeTankCloner(pointer);
           else if (this.tools.equipped === 'torch') this.placeTorch(pointer);
+          else if (this.tools.equipped === 'campfire') this.placeCampfire(pointer);
+          else if (this.tools.equipped === 'nightbreaker') this.placeNightbreaker(pointer);
           else if (this.tools.equipped === 'tower') this.placeTower(pointer);
           else if (this.tools.equipped === 'trap') this.placeTrap(pointer);
           else if (this.tools.equipped === 'cloner') this.spawnClone(pointer);
@@ -1173,6 +1206,10 @@ class GameScene extends Phaser.Scene {
             this.removeTankClonerAtPointer(pointer);
           } else if (this.tools.equipped === 'torch') {
             this.removeTorchAtPointer(pointer);
+          } else if (this.tools.equipped === 'campfire') {
+            this.removeCampfireAtPointer(pointer);
+          } else if (this.tools.equipped === 'nightbreaker') {
+            this.removeNightbreakerAtPointer(pointer);
           } else if (this.tools.equipped === 'tower') {
             this.removeTowerAtPointer(pointer);
           } else if (this.tools.equipped === 'trap') {
@@ -1287,6 +1324,7 @@ class GameScene extends Phaser.Scene {
       if (!this.started || this.isPaused) return;
   if (this.nearMoped) this.toggleMoped();
   if (this.nearCar) this.toggleCar();
+    if (this.nearTank) this.toggleTank();
   if (this.nearPlane) this.togglePlane();
     });
     // Enter/exit car with Down arrow
@@ -1294,12 +1332,14 @@ class GameScene extends Phaser.Scene {
       if (!this.started || this.isPaused) return;
       // If near car and not mounted, enter. If mounted, allow exit too.
   if ((this.nearCar && !this.car.mounted) || this.car.mounted) this.toggleCar();
+  else if ((this.nearTank && !this.tank?.mounted) || this.tank?.mounted) this.toggleTank();
   else if ((this.nearPlane && !this.plane.mounted) || this.plane.mounted) this.togglePlane();
     });
     // Also support cursor down key object
     this.cursors?.down?.on('down', ()=>{
       if (!this.started || this.isPaused) return;
   if ((this.nearCar && !this.car.mounted) || this.car.mounted) this.toggleCar();
+  else if ((this.nearTank && !this.tank?.mounted) || this.tank?.mounted) this.toggleTank();
   else if ((this.nearPlane && !this.plane.mounted) || this.plane.mounted) this.togglePlane();
     });
     this.input.keyboard.on('keydown-SHIFT', ()=>{ this._mopedBoost = true; });
@@ -1326,6 +1366,8 @@ class GameScene extends Phaser.Scene {
   this.createMoped();
   // Place car near spawn
   this.createCar();
+  // Place tank near spawn
+  this.createTank();
   
   // Spawn first Oppo a bit later
   this._nextOppoAt = this.time.now + 8000;
@@ -1338,7 +1380,7 @@ class GameScene extends Phaser.Scene {
     '\nVasen klikkaus = mainaa (myös alaspäin) tai ammu (pistoolilla)  |  Oikea klikkaus = aseta lankku' +
   '\nC/V = craftaa 3 puusta 1 lankku  |  E = kauppias  |  1-9/Q = työkalut' +
       '\nSpace = liaani  |  R = Tykki-tila (Minigun/Tarkka)' +
-      '\nM = Pelitila (Klassinen / Star / Spider)' +
+  '\nM = Pelitila (Klassinen / Star / Spider / Wizard)' +
   '\nTeleportti: oikea klikkaus asettaa (8 puuta). Vasen poistaa. R vaihtaa väriä. Mene porttiin: 1,2,3 -> siirto.' +
   '\nLimaklooni: oikea asettaa laitteen, vasen poistaa. Tuottaa limoja ajan kanssa.' +
       '\nPunainen timantti -> Lento  |  Vesi: uida ylös/alas Ylöksellä/Space' +
@@ -1749,6 +1791,14 @@ class GameScene extends Phaser.Scene {
       if (this.plane.prompt) this.plane.prompt.setPosition(this.plane.sprite.x, this.plane.sprite.y - 42).setVisible(this.nearPlane && !this.plane.mounted);
     }
 
+    // Update tank proximity and prompt
+    if (this.tank?.sprite) {
+      const dx = Math.abs(this.player.x - this.tank.sprite.x);
+      const dy = Math.abs(this.player.y - this.tank.sprite.y);
+      this.nearTank = (dx < 120 && dy < 90);
+      if (this.tank.prompt) this.tank.prompt.setPosition(this.tank.sprite.x, this.tank.sprite.y - 40).setVisible(this.nearTank && !this.tank.mounted);
+    }
+
     // Car turrets: auto-target mobs with line-of-sight (no shooting through walls)
     // If mounted, attach car to player for clear feedback
     if (this.car?.mounted && this.car.sprite) {
@@ -1822,6 +1872,40 @@ class GameScene extends Phaser.Scene {
             const sx = t.x + Math.cos(ang)*18, sy = t.y + Math.sin(ang)*6;
             this.spawnBulletFrom(sx, sy, best.x, best.y, { speed: 820, lifeTiles: 8, spread: 0.08, noBlockDamage: true, isMinigun: true });
           }
+        }
+      }
+    }
+
+    // Tank: attach to player and auto-aim turret when mounted
+    if (this.tank?.mounted && this.tank.sprite) {
+      this.tank.sprite.setPosition(this.player.x, this.player.y+10);
+      this.tank.turret.setPosition(this.tank.sprite.x, this.tank.sprite.y-12).setVisible(true).setDepth(5);
+    }
+    if (this.tank?.mounted && this.tank.turret) {
+      const t = this.tank.turret;
+      const groups = [this.slimes, this.birds, this.zombies, this.oppos];
+      const range2 = (18*TILE)*(18*TILE);
+      let best=null, bestD2=range2;
+      for (const g of groups) {
+        g?.children?.iterate?.(e=>{
+          if (!e || !e.active) return;
+          const dx=e.x - t.x, dy=e.y - t.y; const d2=dx*dx+dy*dy; if (d2>=bestD2) return;
+          const steps = Math.ceil(Math.hypot(dx,dy)/TILE);
+          let blocked=false; for (let i=1;i<=steps;i++){
+            const ix = t.x + dx*i/steps, iy = t.y + dy*i/steps;
+            const tx = Math.floor(ix/TILE), ty = Math.floor(iy/TILE);
+            if (this.hasSolidBlockAt(tx,ty)) { blocked=true; break; }
+          }
+          if (!blocked) { best=e; bestD2=d2; }
+        });
+      }
+      if (best) {
+        const ang = Math.atan2(best.y - t.y, best.x - t.x);
+        t.setRotation(ang);
+        if (!t._nextFireAt || this.time.now >= t._nextFireAt) {
+          t._nextFireAt = this.time.now + 160; // tank cadence
+          const sx = t.x + Math.cos(ang)*20, sy = t.y + Math.sin(ang)*6;
+          this.spawnBulletFrom(sx, sy, best.x, best.y, { speed: 780, lifeTiles: 9, spread: 0.05, noBlockDamage: true });
         }
       }
     }
@@ -2317,10 +2401,11 @@ class GameScene extends Phaser.Scene {
       this.darknessGfx.setBlendMode(Phaser.BlendModes.NORMAL);
       this.darknessGfx.fillStyle(0x000000, alpha);
       this.darknessGfx.fillRect(0, 0, cam.width, cam.height);
-      // torch light holes
-      if (this.torchPositions?.length) {
+      // torch & campfire light holes
+  if ((this.torchPositions?.length||0) || (this.campfirePositions?.length||0) || (this.lampPositions?.length||0) || (this.nightbreakerPositions?.length||0)) {
         this.darknessGfx.setBlendMode(Phaser.BlendModes.ERASE);
   const rad = 140;
+  // Torches
   for (const p of this.torchPositions) {
           const wx = p.tx*TILE + TILE/2;
           const wy = p.ty*TILE + TILE/2;
@@ -2343,6 +2428,70 @@ class GameScene extends Phaser.Scene {
             const t = 1 - frac;               // 0 at edge -> 1 at center
             const eased = t * t;              // quadratic ease-in for smoother center
             const a = (minA + (maxA - minA) * eased) * alphaJitter;
+            this.darknessGfx.fillStyle(0xffffff, a);
+            this.darknessGfx.fillCircle(sx, sy, rr);
+          }
+        }
+        // Lamps: small steady light (no flicker), radius ~110px
+        const radLamp = 110;
+        for (const p of this.lampPositions) {
+          const wx = p.tx*TILE + TILE/2;
+          const wy = p.ty*TILE + TILE/2;
+          const sx = wx - cam.scrollX;
+          const sy = wy - cam.scrollY;
+          if (sx < -radLamp || sy < -radLamp || sx > cam.width+radLamp || sy > cam.height+radLamp) continue;
+          const steps = 26; const maxA = 0.25, minA = 0.02;
+          for (let i = steps; i >= 1; i--) {
+            const frac = i / steps; const rr = radLamp * frac; const t = 1 - frac; const eased = t*t;
+            const a = (minA + (maxA - minA) * eased);
+            this.darknessGfx.fillStyle(0xffffff, a);
+            this.darknessGfx.fillCircle(sx, sy, rr);
+          }
+        }
+        // Campfires: slightly smaller base radius in tiles (6.6), converted to pixels
+        const radCamp = Math.max(40, TILE * 6.6);
+        for (const p of this.campfirePositions) {
+          const wx = p.tx*TILE + TILE/2;
+          const wy = p.ty*TILE + TILE/2;
+          const sx = wx - cam.scrollX;
+          const sy = wy - cam.scrollY;
+          if (sx < -radCamp || sy < -radCamp || sx > cam.width+radCamp || sy > cam.height+radCamp) continue;
+          const steps = 32; const maxA = 0.38, minA = 0.04;
+          const key = `${p.tx},${p.ty}`;
+          const cf = this.campfires.get(key);
+          const flick = cf?.flicker;
+          const time = this.time.now / 1000;
+          const flickPhase = flick ? (flick.seed + time * flick.speed) : 0;
+          const frad = radCamp * (flick ? (1 + Math.sin(flickPhase) * (flick.ampR||0)) : 1);
+          const alphaScale = flick ? (1 + Math.sin(flickPhase*1.2 + 0.3) * (flick.ampA||0)) : 1;
+          for (let i = steps; i >= 1; i--) {
+            const frac = i / steps;
+            const rr = frad * frac;
+            const t = 1 - frac;
+            const eased = t * t;
+            const a = (minA + (maxA - minA) * eased) * alphaScale;
+            this.darknessGfx.fillStyle(0xffffff, a);
+            this.darknessGfx.fillCircle(sx, sy, rr);
+          }
+        }
+        // Nightbreakers: strong light + bluish tint, radius ~7.5 tiles
+        const radNB = TILE * 7.5;
+        for (const p of this.nightbreakerPositions) {
+          const wx = p.tx*TILE + TILE/2;
+          const wy = p.ty*TILE + TILE/2;
+          const sx = wx - cam.scrollX;
+          const sy = wy - cam.scrollY;
+          if (sx < -radNB || sy < -radNB || sx > cam.width+radNB || sy > cam.height+radNB) continue;
+          const steps = 34; const maxA = 0.50, minA = 0.05;
+          const key = `${p.tx},${p.ty}`;
+          const nb = this.nightbreakers.get(key); const flick = nb?.flicker;
+          const time = this.time.now / 1000;
+          const flickPhase = flick ? (flick.seed + time * flick.speed) : 0;
+          const frad = radNB * (flick ? (1 + Math.sin(flickPhase) * (flick.ampR||0)) : 1);
+          const alphaScale = flick ? (1 + Math.sin(flickPhase*1.4 + 0.3) * (flick.ampA||0)) : 1;
+          for (let i = steps; i >= 1; i--) {
+            const frac = i / steps; const rr = frad * frac; const t = 1 - frac; const eased = t*t;
+            const a = (minA + (maxA - minA) * eased) * alphaScale;
             this.darknessGfx.fillStyle(0xffffff, a);
             this.darknessGfx.fillCircle(sx, sy, rr);
           }
@@ -2371,6 +2520,65 @@ class GameScene extends Phaser.Scene {
             const eased = t * t;
             const a = (glowMinA + (glowMaxA - glowMinA) * eased) * glowScaleA;
             this.darknessGfx.fillStyle(glowColor, a);
+            this.darknessGfx.fillCircle(sx, sy, rr);
+          }
+        }
+        // Lamp soft warm glow
+        const lampGlowColor = 0xffe4a8;
+        const lampGlowRad = 100; const lampGlowSteps = 16; const lampGlowMaxA = 0.09; const lampGlowMinA = 0.0;
+        for (const p of this.lampPositions) {
+          const wx = p.tx*TILE + TILE/2;
+          const wy = p.ty*TILE + TILE/2;
+          const sx = wx - cam.scrollX;
+          const sy = wy - cam.scrollY;
+          if (sx < -lampGlowRad || sy < -lampGlowRad || sx > cam.width+lampGlowRad || sy > cam.height+lampGlowRad) continue;
+          for (let i=lampGlowSteps;i>=1;i--){
+            const frac=i/lampGlowSteps; const rr=lampGlowRad*frac; const t=1-frac; const eased=t*t; const a=(lampGlowMinA + (lampGlowMaxA - lampGlowMinA)*eased);
+            this.darknessGfx.fillStyle(lampGlowColor, a);
+            this.darknessGfx.fillCircle(sx, sy, rr);
+          }
+        }
+        // Campfire glow: slightly stronger
+        const glowColorCf = 0xffaa44;
+        // Nightbreaker bluish aura
+        const nbGlowColor = 0x99bbff;
+        const nbGlowRad = TILE*7.5*0.85; const nbGlowSteps = 24; const nbGlowMaxA = 0.18; const nbGlowMinA = 0.0;
+        for (const p of this.nightbreakerPositions) {
+          const wx = p.tx*TILE + TILE/2;
+          const wy = p.ty*TILE + TILE/2;
+          const sx = wx - cam.scrollX;
+          const sy = wy - cam.scrollY;
+          if (sx < -nbGlowRad || sy < -nbGlowRad || sx > cam.width+nbGlowRad || sy > cam.height+nbGlowRad) continue;
+          const key = `${p.tx},${p.ty}`; const nb = this.nightbreakers.get(key); const flick = nb?.flicker; const time=this.time.now/1000; const flickPhase = flick ? (flick.seed + time*flick.speed) : 0;
+          const glowR = nbGlowRad * (flick ? (1 + Math.sin(flickPhase)*(flick.ampR||0)*0.6) : 1);
+          const glowScaleA = flick ? (1 + Math.sin(flickPhase*1.2+0.4)*(flick.ampA||0)) : 1;
+          for (let i=nbGlowSteps;i>=1;i--){
+            const frac=i/nbGlowSteps; const rr=glowR*frac; const t=1-frac; const eased=t*t; const a=(nbGlowMinA + (nbGlowMaxA - nbGlowMinA)*eased)*glowScaleA;
+            this.darknessGfx.fillStyle(nbGlowColor, a);
+            this.darknessGfx.fillCircle(sx, sy, rr);
+          }
+        }
+        const glowRadCf = Math.max(30, TILE*6.6*0.8);
+        for (const p of this.campfirePositions) {
+          const wx = p.tx*TILE + TILE/2;
+          const wy = p.ty*TILE + TILE/2;
+          const sx = wx - cam.scrollX;
+          const sy = wy - cam.scrollY;
+          if (sx < -glowRadCf || sy < -glowRadCf || sx > cam.width+glowRadCf || sy > cam.height+glowRadCf) continue;
+          const key = `${p.tx},${p.ty}`;
+          const cf = this.campfires.get(key);
+          const flick = cf?.flicker;
+          const time = this.time.now / 1000;
+          const flickPhase = flick ? (flick.seed + time * flick.speed) : 0;
+          const glowR = glowRadCf * (flick ? (1 + Math.sin(flickPhase)*(flick.ampR||0)*0.8) : 1);
+          const glowScaleA = flick ? (1 + Math.sin(flickPhase*1.1+0.4)*(flick.ampA||0)) : 1;
+          for (let i=glowSteps; i>=1; i--) {
+            const frac = i / glowSteps;
+            const rr = glowR * frac;
+            const t = 1 - frac;
+            const eased = t * t;
+            const a = (glowMinA + (glowMaxA - glowMinA) * eased) * glowScaleA * 1.1;
+            this.darknessGfx.fillStyle(glowColorCf, a);
             this.darknessGfx.fillCircle(sx, sy, rr);
           }
         }
@@ -2436,7 +2644,10 @@ class GameScene extends Phaser.Scene {
           // block if torch nearby within R tiles
           const R = 6; let nearTorch = false;
           for (const p of this.torchPositions){ if (Math.abs(p.tx - tx) <= R && Math.abs(p.ty - ty) <= R) { nearTorch = true; break; } }
-          if (!nearTorch) {
+          // also block if campfire nearby within ~7 tiles
+          let nearCamp = false; const RC = 7;
+          if (!nearTorch) { for (const c of this.campfirePositions){ if (Math.abs(c.tx - tx) <= RC && Math.abs(c.ty - ty) <= RC) { nearCamp = true; break; } } }
+          if (!nearTorch && !nearCamp) {
             const x = tx*TILE + TILE/2, y = (SURFACE_Y-2)*TILE - 6;
             const z = this.zombies.create(x, y, 'tex_zombie');
             z.body.setAllowGravity(true);
@@ -2459,6 +2670,23 @@ class GameScene extends Phaser.Scene {
         if (!z || !z.body) return;
         if (this._timeStopped) { z.setVelocity(0,0); return; }
         if (z._webbedUntil && this.time.now < z._webbedUntil) { z.setVelocity(0,0); return; } else if (z._webbedUntil && this.time.now >= z._webbedUntil) { z._webbedUntil = 0; }
+        // If inside a campfire safe zone, avoid it: move outward instead of toward player
+        let avoided = false;
+        if (this.campfirePositions?.length) {
+          const radPx = Math.max(40, TILE*6.6);
+          for (const p of this.campfirePositions) {
+            const wx = p.tx*TILE + TILE/2, wy = p.ty*TILE + TILE/2;
+            const ddx = z.x - wx, ddy = z.y - wy;
+            if (ddx*ddx + ddy*ddy <= radPx*radPx) {
+              const dirAway = Math.sign(ddx) || (Math.random()<0.5?1:-1);
+              z.setVelocityX(dirAway * 100);
+              if ((z.body.blocked.down || z.body.touching.down) && Math.random()<0.02) z.setVelocityY(-320);
+              avoided = true;
+              break;
+            }
+          }
+        }
+        if (avoided) return;
         const dx = this.player.x - z.x;
         const dy = this.player.y - z.y; const d2 = dx*dx+dy*dy;
         if (this.itemBag?.invis && d2 > (3*TILE)*(3*TILE)) { z.setVelocityX(0); return; }
@@ -2802,6 +3030,40 @@ class GameScene extends Phaser.Scene {
     }, null, this);
     this.plane = { sprite: plane, turrets: [turretL, turretR], mounted: false, zone, prompt: this.plane.prompt||null, speedMult: this.plane.speedMult||2.2 };
   }
+  // Tank helpers
+  createTank(){
+    const tx = 26, ty = SURFACE_Y - 1;
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    const base = this.add.image(x, y, 'tex_tank_base').setDepth(4);
+    const turret = this.add.image(x, y-12, 'tex_tank_turret').setDepth(5).setOrigin(0.18,0.5);
+    const zone = this.add.zone(x, y, 120, 60);
+    this.physics.world.enable(zone, Phaser.Physics.Arcade.STATIC_BODY);
+    this.physics.add.overlap(this.player, zone, ()=>{
+      this.nearTank = true;
+      if (!this.tankPrompt) this.tankPrompt = this.add.text(0,0,'F/Alas: Tankki', { fontFamily:'monospace', fontSize:'14px', color:'#fff', backgroundColor:'#0008' }).setPadding(4,2).setDepth(1000);
+      this.tankPrompt.setPosition(base.x, base.y - 40).setVisible(!this.tank?.mounted);
+    }, null, this);
+    this.tank = { sprite: base, turret, mounted: false, zone, prompt: this.tankPrompt||null };
+  }
+  toggleTank(){
+    if (!this.tank) return;
+    this.tank.mounted = !this.tank.mounted;
+    const t = this.tank;
+    if (t.mounted) {
+      t.prompt?.setVisible(false);
+      t.sprite.setPosition(this.player.x, this.player.y+10);
+      t.turret.setPosition(t.sprite.x, t.sprite.y-12).setVisible(true);
+      // keep player visible above
+      this.player.setVisible(true).setDepth(6);
+      t.sprite.setDepth(4); t.turret.setDepth(5);
+      this.showToast('Tankki: Kyytiin');
+    } else {
+      t.sprite.setPosition(this.player.x, this.player.y+10);
+      t.turret.setPosition(t.sprite.x, t.sprite.y-12).setVisible(true);
+      this.player.setVisible(true).setDepth(6);
+      this.showToast('Tankki: Poistuit');
+    }
+  }
   togglePlane(){
     this.plane.mounted = !this.plane.mounted;
     if (this.plane.mounted) {
@@ -3138,6 +3400,52 @@ class GameScene extends Phaser.Scene {
   const flicker = { seed: Math.random()*Math.PI*2, speed: 2 + Math.random()*1.2, ampR: 0.05, ampA: 0.15 };
   this.torches.set(key, { image: img, flicker });
     this.torchPositions.push({ tx, ty });
+    this.saveState();
+  }
+
+  // --- Campfire placement (removes night locally, zombies avoid area) ---
+  placeCampfire(pointer){
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(world.x / TILE); const ty = Math.floor(world.y / TILE);
+    const key = `${tx},${ty}`;
+    if (this.blocks.get(key)) { this.showToast('Paikka varattu'); return; }
+    if (!this.hasSolidBlockAt(tx, ty+1)) { this.showToast('Tarvitset lattian alle'); return; }
+    if (this.campfires.has(key)) { this.showToast('Nuotio jo tässä'); return; }
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    const img = this.add.image(x,y,'tex_campfire').setDepth(4);
+    this.decor.add(img);
+    const cx = Math.floor(tx / CHUNK_W);
+    this.chunks.get(cx)?.decor.push(img);
+    const flicker = { seed: Math.random()*Math.PI*2, speed: 2.2 + Math.random()*1.3, ampR: 0.08, ampA: 0.22 };
+    this.campfires.set(key, { image: img, flicker });
+    this.campfirePositions.push({ tx, ty });
+    this.saveState();
+  }
+
+  placeNightbreaker(pointer){
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(wp.x / TILE), ty = Math.floor(wp.y / TILE);
+    const key = `${tx},${ty}`;
+    if (this.nightbreakers.has(key)) { this.showToast('Yönpoistaja jo tässä'); return; }
+    if (this.hasSolidBlockAt(tx, ty) || !this.hasSolidBlockAt(tx, ty+1)) { this.showToast('Tarvitsee lattian'); return; }
+    const x = tx*TILE + TILE/2, y = ty*TILE + TILE/2;
+    const img = this.add.image(x, y, 'tex_nightbreaker').setDepth(4);
+    // subtle flicker data (reuse like torch/campfire)
+    const flick = { seed: Math.random()*Math.PI*2, speed: 2.0 + Math.random()*1.2, ampR: 0.06, ampA: 0.10 };
+    this.nightbreakers.set(key, { image: img, flicker: flick });
+    this.nightbreakerPositions.push({ tx, ty });
+    this.showToast('Yönpoistaja asetettu');
+    this.saveState();
+  }
+
+  removeNightbreakerAtPointer(pointer){
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const tx = Math.floor(wp.x / TILE), ty = Math.floor(wp.y / TILE);
+    const key = `${tx},${ty}`;
+    const e = this.nightbreakers.get(key); if (!e) { this.showToast('Ei yönpoistajaa'); return; }
+    e.image?.destroy();
+    this.nightbreakers.delete(key);
+    this.nightbreakerPositions = this.nightbreakerPositions.filter(p=> !(p.tx===tx && p.ty===ty));
     this.saveState();
   }
 
@@ -4866,19 +5174,32 @@ class GameScene extends Phaser.Scene {
 
   // --- Wizard actions ---
   wizardTapFire(pointer){
-    // Tap: fire 2 magic shots, range 13 tiles
+    // Tap: default = 2 magic shots, range 13 tiles
     const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
     const sx = this.player.x, sy = this.player.y;
-    // two shots with slight spread
-    this.spawnBulletFrom(sx, sy, wp.x, wp.y, { speed: 700, lifeTiles: 13, spread: 0.05 });
-    this.time.delayedCall(70, ()=>{
+    // In Wizard mode: non-destructive arcane bolts, slightly longer range
+    if (this.mode.current === 'wizard') {
+      const opts = { speed: 700, lifeTiles: 16, spread: 0.04, noBlockDamage: true };
+      this.spawnBulletFrom(sx, sy, wp.x, wp.y, opts);
+      this.time.delayedCall(70, ()=>{ this.spawnBulletFrom(sx, sy, wp.x, wp.y, opts); });
+      this.time.delayedCall(140, ()=>{ this.spawnBulletFrom(sx, sy, wp.x, wp.y, opts); });
+    } else {
+      // two shots with slight spread
       this.spawnBulletFrom(sx, sy, wp.x, wp.y, { speed: 700, lifeTiles: 13, spread: 0.05 });
-    });
+      this.time.delayedCall(70, ()=>{
+        this.spawnBulletFrom(sx, sy, wp.x, wp.y, { speed: 700, lifeTiles: 13, spread: 0.05 });
+      });
+    }
     window.playSfx?.('shoot');
   }
   wizardChargeRelease(pointer){
-    // Hold+release: fire an explosive rocket
-    this.fireBazooka(pointer);
+    // Hold+release: Wizard mode -> protective shield, otherwise bazooka
+    if (this.mode.current === 'wizard') {
+      this.itemBag.shieldUntil = this.time.now + 6000; // 6s shield
+      this.showToast('Suojaus!');
+    } else {
+      this.fireBazooka(pointer);
+    }
   }
 
   // --- Bow (Jousipyssy) ---
@@ -5064,10 +5385,10 @@ class GameScene extends Phaser.Scene {
   }
 
   cycleMode(){
-    const order = ['classic','galactic','web'];
+    const order = ['classic','galactic','web','wizard'];
     const i = order.indexOf(this.mode.current);
     this.mode.current = order[(i+1)%order.length];
-    this.showToast(`Tila: ${this.mode.current==='classic'?'Klassinen': this.mode.current==='galactic'?'Star':'Spider'}`);
+    this.showToast(`Tila: ${this.mode.current==='classic'?'Klassinen': this.mode.current==='galactic'?'Star': this.mode.current==='web'?'Spider':'Wizard'}`);
     this.updateUI();
     this.saveState();
   }
@@ -5258,14 +5579,14 @@ class GameScene extends Phaser.Scene {
       const hv = Math.max(0, Math.min(this.hunger.value|0, this.hunger.max));
       slots[4].textContent += (slots[4].textContent? ' | ' : '') + `Nälkä: ${hv}/${this.hunger.max} (Liha: ${this.food.meat})`;
     // Show equipped tool
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', crossbow:'Varsijousi', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', rifle:'Kivääri', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', fishingrod:'Onki', tower:'Ampumatorni', lamp:'Lamppu', sofa:'Sohva', table:'Pöytä',
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', crossbow:'Varsijousi', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', sniper:'Tarkka-ase', rifle:'Kivääri', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', campfire:'Nuotio', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', fishingrod:'Onki', tower:'Ampumatorni', lamp:'Lamppu', sofa:'Sohva', table:'Pöytä',
     pistol_copper:'Pistooli (Kupari)', bow_copper:'Jousipyssy (Kupari)', crossbow_copper:'Varsijousi (Kupari)', minigun_copper:'Minigun (Kupari)', ak47_copper:'AK-47 (Kupari)', knife_copper:'Puukko (Kupari)', sniper_copper:'Tarkka-ase (Kupari)', bazooka_copper:'Bazooka (Kupari)', grenade_copper:'Kranaatti (Kupari)', nuke_copper:'Ydinase (Kupari)', pamppu_copper:'Pamppu (Kupari)', plane_copper:'Lentokone (Kupari)'
   };
   const eq = this.tools.equipped;
   let suffix = '';
   if (eq === 'cannon') suffix = ` (${this.tools.cannonMode==='minigun'?'Minigun':'Tarkka'})`;
   if (eq === 'pamppu') suffix = ` (${this.pamppu.mode==='attack'?'Lyönti':'Suojaus'})`;
-  const modeLabel = this.mode?.current==='classic' ? 'Klassinen' : (this.mode.current==='galactic'?'Star':'Spider');
+  const modeLabel = this.mode?.current==='classic' ? 'Klassinen' : (this.mode.current==='galactic'?'Star': (this.mode.current==='web'?'Spider':'Wizard'));
   slots[5].textContent = `Työkalu: ${toolNames[eq]}${suffix}  |  Tila: ${modeLabel}`;
   }
 
@@ -5338,7 +5659,7 @@ class GameScene extends Phaser.Scene {
     const select = document.getElementById('toolSelect');
     if (!select) return;
     select.innerHTML = '';
-  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', crossbow:'Varsijousi', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', spear:'Keihäs', sniper:'Tarkka-ase', rifle:'Kivääri', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', fishingrod:'Onki', tower:'Ampumatorni', trap:'Ansat', lamp:'Lamppu', sofa:'Sohva', table:'Pöytä',
+  const toolNames = { hand:'Käsi', wooden:'Puuhakku', stone:'Kivihakku', iron:'Rautahakku', pistol:'Pistooli', bow:'Jousipyssy', crossbow:'Varsijousi', cannon:'Tykki', minigun:'Minigun', ak47:'AK-47', knife:'Puukko', spear:'Keihäs', sniper:'Tarkka-ase', rifle:'Kivääri', bazooka:'Bazooka', grenade:'Kranaatti', nuke:'Ydinase', plane:'Lentokone', hook:'Koukku', cloner:'Kloonaaja', teleport:'Teleportti', slimecloner:'Limaklooni', soldiercloner:'Sotilasklooni', torch:'Soihtu', campfire:'Nuotio', wizard:'Velho', flame:'Tulenheitin', pamppu:'Pamppu', mine:'Miina', rod:'Ukonjohdatin', fishingrod:'Onki', tower:'Ampumatorni', trap:'Ansat', lamp:'Lamppu', sofa:'Sohva', table:'Pöytä',
   pistol_copper:'Pistooli (Kupari)', bow_copper:'Jousipyssy (Kupari)', crossbow_copper:'Varsijousi (Kupari)', minigun_copper:'Minigun (Kupari)', ak47_copper:'AK-47 (Kupari)', knife_copper:'Puukko (Kupari)', sniper_copper:'Tarkka-ase (Kupari)', bazooka_copper:'Bazooka (Kupari)', grenade_copper:'Kranaatti (Kupari)', nuke_copper:'Ydinase (Kupari)', pamppu_copper:'Pamppu (Kupari)', plane_copper:'Lentokone (Kupari)'
   };
     for (const tool in this.tools.owned) {
@@ -5493,6 +5814,18 @@ class GameScene extends Phaser.Scene {
         this.chunks.get(cx)?.decor.push(img);
   const flicker = { seed: Math.random()*Math.PI*2, speed: 2 + Math.random()*1.2, ampR: 0.05, ampA: 0.15 };
   this.torches.set(`${p.tx},${p.ty}`, { image: img, flicker });
+      }
+    }
+    // Re-spawn saved campfires
+    if (Array.isArray(this.campfirePositions)) {
+      for (const p of this.campfirePositions) {
+        const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+        const img = this.add.image(x,y,'tex_campfire').setDepth(4);
+        this.decor.add(img);
+        const cx = Math.floor(p.tx / CHUNK_W);
+        this.chunks.get(cx)?.decor.push(img);
+        const flicker = { seed: Math.random()*Math.PI*2, speed: 2.2 + Math.random()*1.3, ampR: 0.08, ampA: 0.22 };
+        this.campfires.set(`${p.tx},${p.ty}`, { image: img, flicker });
       }
     }
     // Re-spawn saved furniture (lamps, sofas, tables)
@@ -6111,6 +6444,25 @@ class GameScene extends Phaser.Scene {
         }
       }
     }
+    // Campfires in this chunk
+    if (Array.isArray(this.campfirePositions)) {
+      for (const p of this.campfirePositions) {
+        const cxp = Math.floor(p.tx/CHUNK_W);
+        if (cxp !== cx) continue;
+        const key = `${p.tx},${p.ty}`;
+        const existing = this.campfires.get(key);
+        if (existing && existing.image?.active) continue;
+        const x = p.tx*TILE + TILE/2, y = p.ty*TILE + TILE/2;
+        const img = this.add.image(x,y,'tex_campfire').setDepth(4);
+        this.decor.add(img);
+        this.chunks.get(cx)?.decor.push(img);
+        if (existing) { existing.image = img; }
+        else {
+          const flicker = { seed: Math.random()*Math.PI*2, speed: 2.2 + Math.random()*1.3, ampR: 0.08, ampA: 0.22 };
+          this.campfires.set(key, { image: img, flicker });
+        }
+      }
+    }
     // Furniture in this chunk
     if (Array.isArray(this.lampPositions)) {
       for (const p of this.lampPositions) {
@@ -6474,7 +6826,7 @@ class GameScene extends Phaser.Scene {
   }
 
   saveState(){
-  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, bounceShoes: this.state.bounceShoes, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, soldierCloners: this.soldierClonerPositions, tankCloners: this.tankClonerPositions, torches: this.torchPositions, mines: this.minePositions, rods: this.rodPositions, towers: this.towerPositions, traps: this.trapPositions, lamps: this.lampPositions, sofas: this.sofaPositions, tables: this.tablePositions, weather: this.weather, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic', upgrades: this.upgrades, hunger: this.hunger, food: this.food, itemBag: this.itemBag };
+  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, bounceShoes: this.state.bounceShoes, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, soldierCloners: this.soldierClonerPositions, tankCloners: this.tankClonerPositions, torches: this.torchPositions, campfires: this.campfirePositions, mines: this.minePositions, rods: this.rodPositions, towers: this.towerPositions, traps: this.trapPositions, lamps: this.lampPositions, sofas: this.sofaPositions, tables: this.tablePositions, weather: this.weather, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic', upgrades: this.upgrades, hunger: this.hunger, food: this.food, itemBag: this.itemBag };
     try {
       const wid = window.localStorage.getItem('UAG_worldCurrent') || 'world-1';
       localStorage.setItem(`UAG_save_${wid}`, JSON.stringify(data));
@@ -6524,6 +6876,7 @@ class GameScene extends Phaser.Scene {
   if (Array.isArray(d.soldierCloners)) this.soldierClonerPositions = d.soldierCloners.slice(0, 1000);
   if (Array.isArray(d.tankCloners)) this.tankClonerPositions = d.tankCloners.slice(0, 1000);
   if (Array.isArray(d.torches)) this.torchPositions = d.torches.slice(0, 3000);
+  if (Array.isArray(d.campfires)) this.campfirePositions = d.campfires.slice(0, 2000);
   if (Array.isArray(d.lamps)) this.lampPositions = d.lamps.slice(0, 3000);
   if (Array.isArray(d.sofas)) this.sofaPositions = d.sofas.slice(0, 3000);
   if (Array.isArray(d.tables)) this.tablePositions = d.tables.slice(0, 3000);
