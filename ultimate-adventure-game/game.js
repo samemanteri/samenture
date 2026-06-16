@@ -11,6 +11,50 @@ const LOAD_RADIUS = 3;     // chunks to load around player
 const WORLD_SEED = 987654321;
 const INF_W = 10000000;    // huge world bounds width
 
+const BATTLE_ANIMAL_TEXTURE_PREFIX = 'tex_ba_';
+const BATTLE_ANIMAL_SPECS = [
+  { id: 'kettu', name: 'Kettu', form: 'runner', ability: 'focus', hp: 24, attack: 7, biomes: ['forest'], colors: { primary: 0xd97a1d, secondary: 0xffd18f, accent: 0x2a1a10 } },
+  { id: 'susi', name: 'Susi', form: 'runner', ability: 'pack', hp: 28, attack: 8, biomes: ['forest'], colors: { primary: 0x6f7c84, secondary: 0xc8d0d5, accent: 0x222222 } },
+  { id: 'ilves', name: 'Ilves', form: 'runner', ability: 'focus', hp: 26, attack: 9, biomes: ['forest'], colors: { primary: 0xb47b45, secondary: 0xf1c79f, accent: 0x2b2119 } },
+  { id: 'karhu', name: 'Karhu', form: 'tank', ability: 'guard', hp: 34, attack: 7, biomes: ['forest'], colors: { primary: 0x74492f, secondary: 0xc29b79, accent: 0x1f140f } },
+  { id: 'hirvi', name: 'Hirvi', form: 'horned', ability: 'charge', hp: 32, attack: 8, biomes: ['forest'], colors: { primary: 0x846340, secondary: 0xc7a680, accent: 0xead7b0 } },
+  { id: 'majava', name: 'Majava', form: 'tank', ability: 'guard', hp: 30, attack: 6, biomes: ['forest'], colors: { primary: 0x8c5f36, secondary: 0xd9b78e, accent: 0x5d2f17 } },
+  { id: 'saukko', name: 'Saukko', form: 'aquatic', ability: 'heal', hp: 25, attack: 7, biomes: ['forest', 'ocean'], colors: { primary: 0x6c4a2d, secondary: 0xcaa583, accent: 0xeff8ff } },
+  { id: 'peura', name: 'Peura', form: 'runner', ability: 'charge', hp: 24, attack: 8, biomes: ['forest'], colors: { primary: 0xb88852, secondary: 0xf0d2a4, accent: 0x3d2716 } },
+  { id: 'metso', name: 'Metso', form: 'bird', ability: 'splash', hp: 23, attack: 7, biomes: ['forest'], colors: { primary: 0x3f4a52, secondary: 0x9ea8af, accent: 0xb53a2f } },
+  { id: 'pollo', name: 'Pöllö', form: 'bird', ability: 'focus', hp: 22, attack: 8, biomes: ['forest'], colors: { primary: 0x7e674f, secondary: 0xd8c0a4, accent: 0xffefc2 } },
+  { id: 'kotka', name: 'Kotka', form: 'bird', ability: 'freeze', hp: 24, attack: 9, biomes: ['forest'], colors: { primary: 0x715739, secondary: 0xdac6a8, accent: 0xffd24a } },
+  { id: 'joutsen', name: 'Joutsen', form: 'bird', ability: 'heal', hp: 27, attack: 6, biomes: ['ocean'], colors: { primary: 0xf2f6fb, secondary: 0xb8d5ea, accent: 0xffb347 } },
+  { id: 'sammakko', name: 'Sammakko', form: 'reptile', ability: 'poison', hp: 21, attack: 7, biomes: ['forest', 'ocean'], colors: { primary: 0x47a447, secondary: 0xaee088, accent: 0x173f17 } },
+  { id: 'kilpikonna', name: 'Kilpikonna', form: 'tank', ability: 'shell', hp: 36, attack: 6, biomes: ['ocean'], colors: { primary: 0x3a8c61, secondary: 0xc9b27d, accent: 0x244835 } },
+  { id: 'kobra', name: 'Kobra', form: 'reptile', ability: 'poison', hp: 23, attack: 9, biomes: ['desert'], colors: { primary: 0xc4a34f, secondary: 0xf1df8f, accent: 0x3b2b12 } },
+  { id: 'krokotiili', name: 'Krokotiili', form: 'tank', ability: 'crush', hp: 33, attack: 8, biomes: ['ocean'], colors: { primary: 0x4c8b44, secondary: 0xa6d18d, accent: 0x1f3d17 } },
+  { id: 'hai', name: 'Hai', form: 'aquatic', ability: 'frenzy', hp: 29, attack: 10, biomes: ['ocean'], colors: { primary: 0x4d7696, secondary: 0xbdcfdd, accent: 0xeff8ff } },
+  { id: 'delfiini', name: 'Delfiini', form: 'aquatic', ability: 'heal', hp: 26, attack: 7, biomes: ['ocean'], colors: { primary: 0x6ea9cf, secondary: 0xcfe8f8, accent: 0xffffff } },
+  { id: 'mustekala', name: 'Mustekala', form: 'aquatic', ability: 'freeze', hp: 28, attack: 8, biomes: ['ocean'], colors: { primary: 0x9250a4, secondary: 0xe0b8ed, accent: 0x33153c } },
+  { id: 'rapu', name: 'Rapu', form: 'tank', ability: 'guard', hp: 30, attack: 7, biomes: ['ocean'], colors: { primary: 0xd15d3b, secondary: 0xf2ba8c, accent: 0x622514 } },
+  { id: 'kameli', name: 'Kameli', form: 'tank', ability: 'endure', hp: 32, attack: 7, biomes: ['desert'], colors: { primary: 0xbc9060, secondary: 0xe8c79d, accent: 0x5d4022 } },
+  { id: 'skorpioni', name: 'Skorpioni', form: 'reptile', ability: 'poison', hp: 22, attack: 9, biomes: ['desert'], colors: { primary: 0x916833, secondary: 0xe1be75, accent: 0x2f2110 } },
+  { id: 'gekko', name: 'Gekko', form: 'runner', ability: 'focus', hp: 21, attack: 7, biomes: ['desert'], colors: { primary: 0x73b15e, secondary: 0xd9f0ae, accent: 0x264d1c } },
+  { id: 'aavikkokettu', name: 'Aavikkokettu', form: 'runner', ability: 'focus', hp: 23, attack: 8, biomes: ['desert'], colors: { primary: 0xe0a368, secondary: 0xf7dbb7, accent: 0x51321a } },
+  { id: 'pingviini', name: 'Pingviini', form: 'bird', ability: 'splash', hp: 26, attack: 6, biomes: ['snow'], colors: { primary: 0x20252b, secondary: 0xf8fbff, accent: 0xffb347 } },
+  { id: 'poro', name: 'Poro', form: 'horned', ability: 'charge', hp: 31, attack: 8, biomes: ['snow'], colors: { primary: 0x7e6246, secondary: 0xd5bca0, accent: 0xf0e6cf } },
+  { id: 'lumileopardi', name: 'Lumileopardi', form: 'runner', ability: 'focus', hp: 25, attack: 10, biomes: ['snow'], colors: { primary: 0xd7dee3, secondary: 0xffffff, accent: 0x37424a } },
+  { id: 'hylje', name: 'Hylje', form: 'aquatic', ability: 'heal', hp: 29, attack: 7, biomes: ['snow', 'ocean'], colors: { primary: 0x8ca0ac, secondary: 0xeaf3f8, accent: 0x2f3e47 } },
+  { id: 'villisika', name: 'Villisika', form: 'tank', ability: 'crush', hp: 32, attack: 8, biomes: ['forest'], colors: { primary: 0x6e4a31, secondary: 0xc59a73, accent: 0xf7f0df } },
+  { id: 'harka', name: 'Härkä', form: 'horned', ability: 'charge', hp: 34, attack: 9, biomes: ['forest', 'desert'], colors: { primary: 0x5b4637, secondary: 0xbca48d, accent: 0xf1ead6 } }
+];
+const BATTLE_ANIMAL_MAP = Object.fromEntries(BATTLE_ANIMAL_SPECS.map((spec) => [spec.id, spec]));
+const BALLOON_SOLDIER_ARCHETYPES = [
+  { id: 'lancer', name: 'Keihäspallo', hp: 26, attack: 7 },
+  { id: 'bomber', name: 'Pomppupallo', hp: 24, attack: 6 },
+  { id: 'captain', name: 'Komentajapallo', hp: 30, attack: 8 }
+];
+
+function toCssHex(color) {
+  return `#${color.toString(16).padStart(6, '0')}`;
+}
+
 class GameScene extends Phaser.Scene {
   constructor() {
     super('GameScene');
@@ -212,6 +256,201 @@ class GameScene extends Phaser.Scene {
   };
   this.wolves = null; // wolf enemy group
   
+  // Dog system
+  this.dog = null;
+  this.dogState = { active: false, mode: 'follow', inventory: [], money: 0, stats: { speed: 140, damage: 1 }, name: 'Musti' };
+  this.dogMenu = null; // DOM element 
+
+  this.battle = {
+    collection: {},
+    team: [],
+    wins: 0,
+    losses: 0,
+    wave: 1,
+    arenaOpen: false,
+    inFight: false,
+    allies: [],
+    enemies: [],
+    selectedAnimalId: null,
+    selectedTargetId: null,
+    log: ['Ilmapallosotilaat odottavat taistelua.'],
+    rewardCoins: 0
+  };
+  this.battleEls = {};
+  
+  }
+
+  getBattleAnimalTextureKey(id) {
+    return `${BATTLE_ANIMAL_TEXTURE_PREFIX}${id}`;
+  }
+
+  generateBattleAnimalTextures(g) {
+    BATTLE_ANIMAL_SPECS.forEach((spec) => this.drawBattleAnimalTexture(g, spec));
+  }
+
+  drawBattleAnimalTexture(g, spec) {
+    const key = this.getBattleAnimalTextureKey(spec.id);
+    const w = 30;
+    const h = 22;
+    const primary = spec.colors.primary;
+    const secondary = spec.colors.secondary;
+    const accent = spec.colors.accent;
+    const legColor = Phaser.Display.Color.IntegerToColor(primary).darken(20).color;
+    g.clear();
+
+    if (spec.form === 'bird') {
+      g.fillStyle(primary, 1); g.fillEllipse(12, 12, 18, 12);
+      g.fillStyle(secondary, 1); g.fillEllipse(20, 8, 12, 10);
+      g.fillStyle(accent, 1); g.fillTriangle(24, 9, 29, 11, 24, 13);
+      g.fillStyle(secondary, 0.95); g.fillEllipse(10, 12, 8, 6);
+      g.fillStyle(0xffcc44, 1); g.fillRect(7, 16, 2, 5); g.fillRect(13, 16, 2, 5);
+      g.fillStyle(accent, 1); g.fillCircle(22, 8, 1.4);
+      if (spec.ability === 'heal') g.fillStyle(0xffffff, 0.9), g.fillRect(2, 4, 4, 2), g.fillRect(3, 3, 2, 4);
+    } else if (spec.form === 'aquatic') {
+      g.fillStyle(primary, 1); g.fillEllipse(13, 11, 20, 12);
+      g.fillStyle(secondary, 1); g.fillTriangle(23, 11, 30, 5, 30, 17);
+      g.fillStyle(secondary, 0.95); g.fillEllipse(10, 11, 7, 4);
+      g.fillStyle(accent, 1); g.fillCircle(7, 10, 1.5);
+      if (spec.id === 'mustekala') {
+        g.fillStyle(primary, 1);
+        for (let i = 0; i < 4; i++) g.fillRect(6 + i * 4, 14, 2, 6);
+      }
+      if (spec.id === 'rapu') {
+        g.fillStyle(accent, 1); g.fillRect(2, 7, 4, 2); g.fillRect(2, 13, 4, 2); g.fillRect(20, 7, 4, 2); g.fillRect(20, 13, 4, 2);
+      }
+    } else {
+      g.fillStyle(primary, 1); g.fillRoundedRect(2, 7, 20, 10, 4);
+      g.fillStyle(secondary, 1); g.fillRoundedRect(16, 4, 11, 8, 4);
+      g.fillStyle(legColor, 1); g.fillRect(5, 16, 3, 5); g.fillRect(11, 16, 3, 5); g.fillRect(18, 16, 3, 5);
+      g.fillStyle(accent, 1); g.fillCircle(23, 7, 1.4);
+      if (spec.form === 'horned') {
+        g.fillStyle(accent, 1); g.fillRect(18, 2, 2, 4); g.fillRect(23, 2, 2, 4);
+      }
+      if (spec.form === 'reptile') {
+        g.fillStyle(accent, 1); g.fillRect(2, 11, 4, 2);
+      }
+      if (spec.form === 'runner') {
+        g.fillStyle(secondary, 1); g.fillRect(21, 8, 6, 3);
+      }
+      if (spec.form === 'tank') {
+        g.fillStyle(secondary, 1); g.fillRect(8, 9, 6, 3);
+      }
+    }
+
+    if (spec.ability === 'poison') {
+      g.fillStyle(0x7a2fa0, 1); g.fillCircle(5, 5, 2);
+    } else if (spec.ability === 'focus') {
+      g.fillStyle(0xfff3a3, 1); g.fillCircle(4, 5, 2);
+    } else if (spec.ability === 'guard' || spec.ability === 'shell') {
+      g.fillStyle(0x8fd4de, 1); g.fillRect(2, 2, 4, 4);
+    } else if (spec.ability === 'charge') {
+      g.fillStyle(0xff9d57, 1); g.fillTriangle(2, 6, 7, 2, 7, 10);
+    } else if (spec.ability === 'frenzy') {
+      g.fillStyle(0xff6767, 1); g.fillRect(2, 3, 4, 2); g.fillRect(3, 2, 2, 4);
+    }
+
+    g.generateTexture(key, w, h);
+    g.clear();
+  }
+
+  pickBattleAnimalForBiome(biome, rng) {
+    const zone = biome === 'snow' || biome === 'desert' || biome === 'ocean' ? biome : 'forest';
+    const pool = BATTLE_ANIMAL_SPECS.filter((spec) => spec.biomes.includes(zone));
+    const source = pool.length ? pool : BATTLE_ANIMAL_SPECS;
+    return source[Math.floor(rng() * source.length)];
+  }
+
+  configureBattleAnimalSprite(sprite, spec, rng = Math.random) {
+    if (!sprite?.body || !spec) return;
+    sprite.setData('battleAnimalId', spec.id);
+    sprite.setData('battleAnimalName', spec.name);
+    sprite.setData('battleAbility', spec.ability);
+    const speed = 38 + rng() * 34;
+    sprite.setBounce(0.05, 0.0);
+    sprite.setCollideWorldBounds(true);
+    sprite.setVelocityX(rng() < 0.5 ? -speed : speed);
+    if (spec.form === 'bird') sprite.body.setSize(18, 14).setOffset(4, 4);
+    else if (spec.form === 'tank') sprite.body.setSize(22, 14).setOffset(4, 6);
+    else if (spec.form === 'horned') sprite.body.setSize(22, 14).setOffset(4, 6);
+    else if (spec.form === 'aquatic') sprite.body.setSize(20, 12).setOffset(4, 6);
+    else sprite.body.setSize(20, 14).setOffset(4, 6);
+  }
+
+  getCollectedBattleAnimalCount() {
+    return Object.keys(this.battle.collection).length;
+  }
+
+  getBattleAnimalCopies(id) {
+    return Math.max(0, this.battle.collection[id] || 0);
+  }
+
+  getBattleAnimalCombatStats(id) {
+    const spec = BATTLE_ANIMAL_MAP[id];
+    if (!spec) return null;
+    const copies = this.getBattleAnimalCopies(id);
+    const bonus = Math.max(0, copies - 1);
+    return {
+      id,
+      name: spec.name,
+      ability: spec.ability,
+      form: spec.form,
+      primary: toCssHex(spec.colors.primary),
+      secondary: toCssHex(spec.colors.secondary),
+      maxHp: spec.hp + bonus * 2 + Math.floor(this.battle.wins / 2),
+      hp: spec.hp + bonus * 2 + Math.floor(this.battle.wins / 2),
+      attack: spec.attack + Math.min(4, bonus) + Math.floor(this.battle.wins / 4),
+      shield: 0,
+      poison: 0,
+      stun: 0,
+      skillUsed: false
+    };
+  }
+
+  getAliveBattleUnits(group) {
+    return group.filter((unit) => unit.hp > 0);
+  }
+
+  addBattleLog(message) {
+    this.battle.log.unshift(message);
+    this.battle.log = this.battle.log.slice(0, 10);
+  }
+
+  collectBattleAnimal(animal) {
+    if (!animal || !animal.active || animal.getData('battleCollected')) return;
+    const id = animal.getData('battleAnimalId');
+    const spec = BATTLE_ANIMAL_MAP[id];
+    if (!spec) return;
+    animal.setData('battleCollected', true);
+    this.battle.collection[id] = (this.battle.collection[id] || 0) + 1;
+    if (!this.battle.team.includes(id) && this.battle.team.length < 3) this.battle.team.push(id);
+    if (this.battle.collection[id] === 1) this.showToast(`Taistelueläin saatu: ${spec.name}`);
+    else this.showToast(`${spec.name} liittyi joukkoon (+1)`);
+    this.updateBattleUI();
+    this.saveState();
+    animal.destroy();
+  }
+
+  toggleBattleTeamAnimal(id) {
+    if (!this.battle.collection[id]) return;
+    if (this.battle.team.includes(id)) this.battle.team = this.battle.team.filter((entry) => entry !== id);
+    else if (this.battle.team.length < 3) this.battle.team.push(id);
+    else this.showToast('Voit valita enintään kolme taistelueläintä');
+    if (!this.battle.inFight) {
+      this.battle.allies = [];
+      this.battle.enemies = [];
+      this.battle.selectedAnimalId = this.battle.team[0] || null;
+      this.battle.selectedTargetId = null;
+    }
+    this.renderBattleCollection();
+    this.renderBattleArena();
+    this.saveState();
+  }
+
+  ensureBattleSelection() {
+    const aliveAllies = this.getAliveBattleUnits(this.battle.allies);
+    const aliveEnemies = this.getAliveBattleUnits(this.battle.enemies);
+    if (aliveAllies.length && !aliveAllies.some((unit) => unit.id === this.battle.selectedAnimalId)) this.battle.selectedAnimalId = aliveAllies[0].id;
+    if (aliveEnemies.length && !aliveEnemies.some((unit) => unit.id === this.battle.selectedTargetId)) this.battle.selectedTargetId = aliveEnemies[0].id;
   }
 
   preload() {
@@ -909,8 +1148,25 @@ class GameScene extends Phaser.Scene {
   g.fillStyle(0x000000,1); g.fillRect(24,7,2,2);
   g.fillStyle(0xddeaf7,1); g.fillRect(6,18,5,4); g.fillRect(16,18,5,4);
   g.generateTexture('tex_polarbear',32,22); g.clear();
+  this.generateBattleAnimalTextures(g);
   // Meat item
   g.fillStyle(0xaa3b2f,1); g.fillRect(2,2,12,8); g.fillStyle(0xffcbbd,1); g.fillRect(12,3,2,6); g.generateTexture('tex_meat',16,12); g.clear();
+  
+  // Dog texture
+  const dogW = 28, dogH = 20;
+  // body
+  g.fillStyle(0xcc9966, 1); g.fillRoundedRect(0, 6, 20, 12, 4);
+  // head
+  g.fillStyle(0xcc9966, 1); g.fillRoundedRect(16, 2, 12, 11, 3);
+  // eye
+  g.fillStyle(0x000000, 1); g.fillCircle(24, 5, 1.5);
+  // ear
+  g.fillStyle(0x8b5a2b, 1); g.fillRoundedRect(18, 2, 5, 4, 1);
+  // legs
+  g.fillStyle(0xcc9966, 1); g.fillRect(2, 14, 4, 6); g.fillRect(14, 14, 4, 6);
+  // tail
+  g.fillStyle(0xb38654, 1); g.fillRect(0, 8, 3, 2);
+  g.generateTexture('tex_dog', dogW, dogH); g.clear();
   
   }
 
@@ -956,7 +1212,27 @@ class GameScene extends Phaser.Scene {
     });
     this.waters = this.add.group();
   this.clones = this.physics.add.group();
-  
+
+  // Create Dog
+  this.dog = this.physics.add.sprite(100, 100, 'tex_dog'); // will handle pos later
+  this.dog.setCollideWorldBounds(true);
+  this.dog.setBounce(0.1);
+  this.dog.body.setSize(20, 12).setOffset(4, 6);
+  this.physics.add.collider(this.dog, this.platforms);
+  this.dog.setActive(true).setVisible(true); // Starts active/visible
+  this.physics.add.overlap(this.dog, this.pickups, this.onDogPickup, null, this);
+  // Dog interaction
+  this.dog.setInteractive();
+  this.dog.on('pointerdown', (pointer) => {
+      // Allow interaction even if inactive to wake up
+      if (pointer.rightButtonDown()) {
+          this.toggleDogActive();
+      } else {
+          // Left click: Pause & Menu
+          this.pauseGame();
+          this.showDogMenu();
+      }
+  });
 
   // Rope graphics
   this.hookGfx = this.add.graphics();
@@ -994,6 +1270,7 @@ class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.slimes, this.onSlimeHit, null, this);
   this.physics.add.overlap(this.player, this.zombies, (p,z)=>{ this._hitByEnemy(z); }, null, this);
   this.physics.add.overlap(this.player, this.enemySoldiers, (p,e)=>{ this._hitByEnemy(e); }, null, this);
+  this.physics.add.overlap(this.player, this.animals, (playerSprite, animal)=>{ this.collectBattleAnimal(animal); }, null, this);
   // Player bullets vs animals (enemy bullets do not harm animals)
   this.physics.add.overlap(this.bullets, this.animals, (bullet, animal)=>{
     if (bullet?.getData && bullet.getData('fromEnemy')) { bullet.destroy(); return; }
@@ -1315,6 +1592,7 @@ class GameScene extends Phaser.Scene {
     // Pause toggle (Esc)
     this.input.keyboard.on('keydown-ESC', ()=>{
       if (!this.started) return;
+      if (this.battle?.arenaOpen) { this.closeBattleArena(); return; }
       if (this.buildMiniGame.active) { this.cancelBuildMiniGame(); return; }
       if (this.isPaused) this.resumeGame(); else this.pauseGame();
     });
@@ -1390,11 +1668,21 @@ class GameScene extends Phaser.Scene {
 
     // Sync UI and settings checkboxes
   const toggleFly = document.getElementById('toggleFly');
+  const toggleDog = document.getElementById('dogEnable');
+  if (toggleDog) {
+    toggleDog.checked = !!this.dogState.active;
+    toggleDog.addEventListener('change', ()=>{
+       if (toggleDog.checked && !this.dogState.active) this.toggleDogActive();
+       else if (!toggleDog.checked && this.dogState.active) this.toggleDogActive();
+    });
+  }
   if (toggleFly) toggleFly.checked = !!this.state.canFly;
   const toggleBoots = document.getElementById('toggleBoots');
   if (toggleBoots) toggleBoots.checked = !!this.state.bounceShoes;
 
   this.updateUI();
+  this.setupBattleUI();
+  this.updateBattleUI();
 
     // Expose scene for UI handlers
     window.gameScene = this;
@@ -1500,6 +1788,7 @@ class GameScene extends Phaser.Scene {
   }
 
   update() {
+  this.updateDog();
   if (!this.started || this.isPaused) { this.hookGfx?.clear(); this.vineGfx?.clear(); this.cannonAimGfx?.clear(); this.fishingGfx?.clear(); return; }
     // Time Stop upkeep
     if (this._timeStopped) {
@@ -2708,14 +2997,23 @@ class GameScene extends Phaser.Scene {
   this.maybeRunSoldierCloners();
   this.maybeRunTankCloners();
 
-  // Animal simple roaming
-  if (this.animals) {
+  // Animal simple roaming + proximity collection
+  if (this.animals && this.player) {
+    const px = this.player.x, py = this.player.y;
+    const COLLECT_RADIUS = 56; // px — kerätään jos pelaaja astuu lähelle
+    const toCollect = [];
     this.animals.children.iterate((a)=>{
-      if (!a || !a.body) return;
+      if (!a || !a.body || !a.active) return;
       if ((a.body.blocked.left && a.body.velocity.x<0) || (a.body.blocked.right && a.body.velocity.x>0)) a.setVelocityX(-a.body.velocity.x);
       if (Math.random() < 0.005 && (a.body.blocked.down || a.body.touching.down)) a.setVelocityY(-180);
       if (Math.random() < 0.01) a.setVelocityX((Math.random()<0.5?-1:1)*(40+Math.random()*60));
+      if (Math.abs(a.body.velocity.x) > 4) a.setFlipX(a.body.velocity.x < 0);
+      // Merkitään keräystä varten — ei destroyta silmukan sisällä
+      const dx = a.x - px, dy = a.y - py;
+      if (dx*dx + dy*dy < COLLECT_RADIUS*COLLECT_RADIUS) toCollect.push(a);
     });
+    // Destroy vasta iteraation jälkeen, ettei ryhmä hajoa
+    for (const a of toCollect) this.collectBattleAnimal(a);
   }
 
   // Hunger decay (every ~6s, -1)
@@ -5565,6 +5863,7 @@ class GameScene extends Phaser.Scene {
     if (healthEl) healthEl.textContent = `Elämät: ${this.state.health}`;
     if (coinsEl) coinsEl.textContent = `Kolikot: ${this.state.coins}`;
     this.updateInventoryUI();
+    if (this.battleEls?.radarBtn) this.updateBattleUI();
   }
 
   updateInventoryUI(){
@@ -5588,6 +5887,435 @@ class GameScene extends Phaser.Scene {
   if (eq === 'pamppu') suffix = ` (${this.pamppu.mode==='attack'?'Lyönti':'Suojaus'})`;
   const modeLabel = this.mode?.current==='classic' ? 'Klassinen' : (this.mode.current==='galactic'?'Star': (this.mode.current==='web'?'Spider':'Wizard'));
   slots[5].textContent = `Työkalu: ${toolNames[eq]}${suffix}  |  Tila: ${modeLabel}`;
+  }
+
+  setupBattleUI(){
+    if (this.battleEls.radarBtn) return;
+    this.battleEls = {
+      radarBtn: document.getElementById('battleRadarBtn'),
+      radarStatus: document.getElementById('battleRadarStatus'),
+      radarAnimals: document.getElementById('battleRadarAnimals'),
+      overlay: document.getElementById('battleArena'),
+      close: document.getElementById('battleClose'),
+      wave: document.getElementById('battleWave'),
+      record: document.getElementById('battleRecord'),
+      collectionCount: document.getElementById('battleCollectionCount'),
+      teamChips: document.getElementById('battleTeamChips'),
+      collectionGrid: document.getElementById('battleCollectionGrid'),
+      enemies: document.getElementById('battleEnemies'),
+      allies: document.getElementById('battleAllies'),
+      log: document.getElementById('battleLog'),
+      start: document.getElementById('battleStart'),
+      attack: document.getElementById('battleAttack'),
+      skill: document.getElementById('battleSkill'),
+      heal: document.getElementById('battleHeal')
+    };
+    this.battleEls.radarBtn?.addEventListener('click', ()=> this.openBattleArena());
+    this.battleEls.close?.addEventListener('click', ()=> this.closeBattleArena());
+    this.battleEls.start?.addEventListener('click', ()=> this.startBalloonBattle());
+    this.battleEls.attack?.addEventListener('click', ()=> this.performBattleAction('attack'));
+    this.battleEls.skill?.addEventListener('click', ()=> this.performBattleAction('skill'));
+    this.battleEls.heal?.addEventListener('click', ()=> this.performBattleAction('heal'));
+  }
+
+  updateBattleUI(){
+    if (!this.battleEls.radarBtn) return;
+    const collected = this.getCollectedBattleAnimalCount();
+    if (this.battleEls.radarStatus) {
+      this.battleEls.radarStatus.textContent = this.battle.inFight
+        ? `Taistelu käynnissä, aalto ${this.battle.wave}`
+        : `Aalto ${this.battle.wave} odottaa`;
+    }
+    if (this.battleEls.radarAnimals) this.battleEls.radarAnimals.textContent = `Taistelueläimet ${collected}/30`;
+    if (this.battleEls.wave) this.battleEls.wave.textContent = `Aalto ${this.battle.wave}`;
+    if (this.battleEls.record) this.battleEls.record.textContent = `Voitot ${this.battle.wins} | Tappiot ${this.battle.losses}`;
+    if (this.battleEls.collectionCount) this.battleEls.collectionCount.textContent = `Kerätty ${collected}/30`;
+    this.renderBattleCollection();
+    this.renderBattleArena();
+  }
+
+  openBattleArena(){
+    if (!this.started || this.isPaused || !this.battleEls.overlay) return;
+    this.battle.arenaOpen = true;
+    this.isPaused = true;
+    this.physics.world.isPaused = true;
+    document.getElementById('pauseScreen')?.classList.add('hidden');
+    this.battleEls.overlay.classList.remove('hidden');
+    this.updateBattleUI();
+  }
+
+  closeBattleArena(){
+    if (!this.battle.arenaOpen || !this.battleEls.overlay) return;
+    if (this.battle.inFight && this.getAliveBattleUnits(this.battle.allies).length && this.getAliveBattleUnits(this.battle.enemies).length) {
+      this.battle.losses += 1;
+      this.battle.inFight = false;
+      this.addBattleLog('Vetäydyit taistelusta. Ilmapallosotilaat juhlivat tätä erää.');
+    }
+    this.battle.arenaOpen = false;
+    this.battleEls.overlay.classList.add('hidden');
+    this.physics.world.isPaused = false;
+    this.isPaused = false;
+    this.updateBattleUI();
+    this.saveState();
+  }
+
+  renderBattleCollection(){
+    const chips = this.battleEls.teamChips;
+    const grid = this.battleEls.collectionGrid;
+    if (!chips || !grid) return;
+    chips.innerHTML = '';
+    if (!this.battle.team.length) {
+      const empty = document.createElement('span');
+      empty.className = 'battle-team-chip empty';
+      empty.textContent = 'Valitse 1-3 taistelueläintä';
+      chips.appendChild(empty);
+    } else {
+      this.battle.team.forEach((id)=>{
+        const spec = BATTLE_ANIMAL_MAP[id];
+        if (!spec) return;
+        const chip = document.createElement('button');
+        chip.className = `battle-team-chip${this.battle.selectedAnimalId === id ? ' active' : ''}`;
+        chip.textContent = spec.name;
+        chip.addEventListener('click', ()=>{
+          this.battle.selectedAnimalId = id;
+          this.renderBattleCollection();
+          this.renderBattleArena();
+        });
+        chips.appendChild(chip);
+      });
+    }
+
+    grid.innerHTML = '';
+    BATTLE_ANIMAL_SPECS.forEach((spec)=>{
+      const count = this.getBattleAnimalCopies(spec.id);
+      const card = document.createElement('button');
+      const selected = this.battle.team.includes(spec.id);
+      card.className = `battle-collection-card${count ? '' : ' locked'}${selected ? ' selected' : ''}`;
+      card.disabled = !count;
+      const avatar = document.createElement('div');
+      avatar.className = 'battle-avatar';
+      avatar.style.setProperty('--battle-primary', toCssHex(spec.colors.primary));
+      avatar.style.setProperty('--battle-secondary', toCssHex(spec.colors.secondary));
+      const title = document.createElement('div');
+      title.className = 'battle-card-title';
+      title.textContent = count ? spec.name : 'Tuntematon';
+      const meta = document.createElement('div');
+      meta.className = 'battle-card-meta';
+      meta.textContent = count ? `HP ${spec.hp} | ATK ${spec.attack}` : 'Kerää maailmasta';
+      const copy = document.createElement('div');
+      copy.className = 'battle-card-count';
+      copy.textContent = count ? `Kappaleita ${count}` : 'Ei vielä joukkueessa';
+      card.appendChild(avatar);
+      card.appendChild(title);
+      card.appendChild(meta);
+      card.appendChild(copy);
+      if (count) card.addEventListener('click', ()=> this.toggleBattleTeamAnimal(spec.id));
+      grid.appendChild(card);
+    });
+  }
+
+  createBalloonEnemy(index){
+    const archetype = BALLOON_SOLDIER_ARCHETYPES[index % BALLOON_SOLDIER_ARCHETYPES.length];
+    const waveBoost = (this.battle.wave - 1) * 4;
+    return {
+      id: `${archetype.id}-${index}`,
+      type: archetype.id,
+      name: `${archetype.name} ${index + 1}`,
+      maxHp: archetype.hp + waveBoost,
+      hp: archetype.hp + waveBoost,
+      attack: archetype.attack + Math.floor((this.battle.wave - 1) / 2),
+      shield: 0,
+      poison: 0,
+      stun: 0,
+      buffUsed: false
+    };
+  }
+
+  startBalloonBattle(){
+    if (!this.battle.team.length) { this.addBattleLog('Valitse ensin ainakin yksi taistelueläin.'); this.renderBattleArena(); return; }
+    this.battle.allies = this.battle.team.map((id)=> this.getBattleAnimalCombatStats(id)).filter(Boolean);
+    if (!this.battle.allies.length) { this.addBattleLog('Sinulla ei ole vielä taistelukelpoisia eläimiä.'); this.renderBattleArena(); return; }
+    const enemyCount = Math.min(4, 2 + Math.floor((this.battle.wave - 1) / 2));
+    this.battle.enemies = Array.from({ length: enemyCount }, (_, index)=> this.createBalloonEnemy(index));
+    this.battle.selectedAnimalId = this.battle.allies[0]?.id || null;
+    this.battle.selectedTargetId = this.battle.enemies[0]?.id || null;
+    this.battle.inFight = true;
+    this.battle.rewardCoins = 0;
+    this.battle.log = [`Aalto ${this.battle.wave} alkaa. Ilmapallosotilaat hyökkäävät oikeasti.`];
+    this.saveState();
+    this.updateBattleUI();
+    this.renderBattleArena();
+  }
+
+  applyBattleDamage(target, amount){
+    const incoming = Math.max(1, Math.floor(amount));
+    const absorbed = Math.min(target.shield || 0, incoming);
+    target.shield = Math.max(0, (target.shield || 0) - absorbed);
+    const dealt = incoming - absorbed;
+    target.hp = Math.max(0, target.hp - dealt);
+    return { dealt, absorbed };
+  }
+
+  healBattleUnit(unit, amount){
+    const before = unit.hp;
+    unit.hp = Math.min(unit.maxHp, unit.hp + Math.max(1, Math.floor(amount)));
+    return unit.hp - before;
+  }
+
+  performBattleAction(kind){
+    if (!this.battle.inFight) {
+      this.addBattleLog('Paina Aloita taistelu käynnistääksesi taistelun.');
+      this.renderBattleArena();
+      return;
+    }
+    this.ensureBattleSelection();
+    const actor = this.battle.allies.find((unit)=> unit.id === this.battle.selectedAnimalId && unit.hp > 0);
+    const target = this.battle.enemies.find((unit)=> unit.id === this.battle.selectedTargetId && unit.hp > 0);
+    if (!actor || !target) {
+      this.addBattleLog('Valitse elossa oleva taistelueläin ja kohde.');
+      this.renderBattleArena();
+      return;
+    }
+
+    if (kind === 'attack') {
+      const result = this.applyBattleDamage(target, actor.attack + Phaser.Math.Between(1, 4));
+      this.addBattleLog(`${actor.name} iski ${target.name}: ${result.dealt} vahinkoa.`);
+    } else if (kind === 'heal') {
+      const healed = this.healBattleUnit(actor, 7 + Math.floor(actor.attack / 2));
+      this.addBattleLog(`${actor.name} keräsi voimia ja paransi ${healed} elinvoimaa.`);
+    } else if (kind === 'skill') {
+      if (actor.skillUsed) {
+        this.addBattleLog(`${actor.name} on jo käyttänyt erikoistaitonsa tässä taistelussa.`);
+        this.renderBattleArena();
+        return;
+      }
+      actor.skillUsed = true;
+      switch (actor.ability) {
+        case 'focus': {
+          const result = this.applyBattleDamage(target, actor.attack + 8);
+          this.addBattleLog(`${actor.name} käytti tarkkuusiskun: ${result.dealt} vahinkoa.`);
+          break;
+        }
+        case 'pack': {
+          const result = this.applyBattleDamage(target, actor.attack + 5);
+          const other = this.getAliveBattleUnits(this.battle.enemies).find((unit)=> unit.id !== target.id);
+          this.addBattleLog(`${actor.name} hyökkäsi lauman voimalla: ${result.dealt} vahinkoa.`);
+          if (other) {
+            const splash = this.applyBattleDamage(other, Math.max(3, actor.attack - 1));
+            this.addBattleLog(`${other.name} sai sivuiskusta ${splash.dealt} vahinkoa.`);
+          }
+          break;
+        }
+        case 'guard':
+        case 'shell': {
+          actor.shield += 8;
+          this.addBattleLog(`${actor.name} nosti suojan (+8 kilpi).`);
+          break;
+        }
+        case 'charge':
+        case 'crush': {
+          const result = this.applyBattleDamage(target, actor.attack + 6);
+          this.addBattleLog(`${actor.name} ryntäsi läpi: ${result.dealt} vahinkoa.`);
+          break;
+        }
+        case 'heal':
+        case 'endure': {
+          const weakest = this.getAliveBattleUnits(this.battle.allies).sort((a,b)=> (a.hp / a.maxHp) - (b.hp / b.maxHp))[0] || actor;
+          const healed = this.healBattleUnit(weakest, 10 + Math.floor(actor.attack / 2));
+          this.addBattleLog(`${actor.name} vahvisti ${weakest.name}: +${healed} HP.`);
+          break;
+        }
+        case 'poison': {
+          const result = this.applyBattleDamage(target, actor.attack + 2);
+          target.poison = Math.max(target.poison || 0, 3);
+          this.addBattleLog(`${actor.name} myrkytti ${target.name}: ${result.dealt} vahinkoa + myrkky.`);
+          break;
+        }
+        case 'freeze': {
+          const result = this.applyBattleDamage(target, actor.attack + 3);
+          target.stun = 1;
+          this.addBattleLog(`${actor.name} tainnutti ${target.name}: ${result.dealt} vahinkoa.`);
+          break;
+        }
+        case 'frenzy': {
+          const first = this.applyBattleDamage(target, actor.attack + 4);
+          this.addBattleLog(`${actor.name} repi ${target.name}: ${first.dealt} vahinkoa.`);
+          if (target.hp > 0) {
+            const second = this.applyBattleDamage(target, actor.attack + 2);
+            this.addBattleLog(`${actor.name} jatkoi hurjistuneena: ${second.dealt} vahinkoa.`);
+          }
+          break;
+        }
+        case 'splash': {
+          this.getAliveBattleUnits(this.battle.enemies).forEach((enemy)=>{
+            const result = this.applyBattleDamage(enemy, Math.max(3, actor.attack - 1));
+            this.addBattleLog(`${actor.name} osui alueiskulla ${enemy.name}: ${result.dealt} vahinkoa.`);
+          });
+          break;
+        }
+        default: {
+          const result = this.applyBattleDamage(target, actor.attack + 4);
+          this.addBattleLog(`${actor.name} käytti erikoisiskun: ${result.dealt} vahinkoa.`);
+        }
+      }
+    }
+
+    if (this.resolveBattleState()) return;
+    this.applyBattleStatusTicks(this.battle.enemies, 'Vihollinen');
+    if (this.resolveBattleState()) return;
+    this.processEnemyTurn();
+    if (this.resolveBattleState()) return;
+    this.applyBattleStatusTicks(this.battle.allies, 'Joukkue');
+    this.resolveBattleState();
+  }
+
+  applyBattleStatusTicks(group, label){
+    this.getAliveBattleUnits(group).forEach((unit)=>{
+      if (unit.poison > 0) {
+        unit.poison -= 1;
+        const result = this.applyBattleDamage(unit, 3);
+        this.addBattleLog(`${label}: ${unit.name} kärsi myrkystä ${result.dealt} vahinkoa.`);
+      }
+    });
+  }
+
+  processEnemyTurn(){
+    const enemies = this.getAliveBattleUnits(this.battle.enemies);
+    const allies = this.getAliveBattleUnits(this.battle.allies);
+    for (const enemy of enemies) {
+      if (!allies.length) break;
+      if (enemy.stun > 0) {
+        enemy.stun -= 1;
+        this.addBattleLog(`${enemy.name} menetti vuoronsa tainnutuksen takia.`);
+        continue;
+      }
+      if (enemy.type === 'captain' && !enemy.buffUsed && enemies.length > 1) {
+        enemy.buffUsed = true;
+        enemies.forEach((unit)=>{ if (unit.hp > 0) unit.shield += 2; });
+        this.addBattleLog(`${enemy.name} jakoi käskyn: ilmapallosotilaat saivat +2 kilven.`);
+        continue;
+      }
+      if (enemy.type === 'bomber') {
+        this.getAliveBattleUnits(this.battle.allies).forEach((ally)=>{
+          const result = this.applyBattleDamage(ally, Math.max(3, enemy.attack - 2));
+          this.addBattleLog(`${enemy.name} pudotti pommin ${ally.name}n päälle: ${result.dealt} vahinkoa.`);
+        });
+      } else {
+        const targets = this.getAliveBattleUnits(this.battle.allies);
+        const target = targets[Math.floor(Math.random() * targets.length)];
+        if (!target) continue;
+        const result = this.applyBattleDamage(target, enemy.attack + Phaser.Math.Between(0, 3));
+        this.addBattleLog(`${enemy.name} hyökkäsi ${target.name}n kimppuun: ${result.dealt} vahinkoa.`);
+      }
+      if (this.resolveBattleState(true)) return;
+    }
+  }
+
+  resolveBattleState(skipRender = false){
+    const aliveEnemies = this.getAliveBattleUnits(this.battle.enemies);
+    const aliveAllies = this.getAliveBattleUnits(this.battle.allies);
+    let finished = false;
+    if (!aliveEnemies.length && this.battle.inFight) {
+      const reward = 6 + this.battle.wave * 3;
+      this.battle.rewardCoins = reward;
+      this.battle.wins += 1;
+      this.battle.wave += 1;
+      this.battle.inFight = false;
+      this.state.coins += reward;
+      this.addBattleLog(`Voitto! Sait ${reward} kolikkoa ja seuraava aalto valmistautuu.`);
+      this.showToast(`Voitto ilmapallosotilaista! +${reward} kolikkoa`);
+      finished = true;
+    } else if (!aliveAllies.length && this.battle.inFight) {
+      this.battle.losses += 1;
+      this.battle.inFight = false;
+      this.addBattleLog('Taistelueläimet kaatuivat. Ilmapallosotilaat voittivat tämän aallon.');
+      this.showToast('Taistelulava hävittiin');
+      finished = true;
+    }
+    this.ensureBattleSelection();
+    if (!skipRender) {
+      this.renderBattleArena();
+      this.updateBattleUI();
+      this.updateUI();
+      this.saveState();
+    }
+    return finished;
+  }
+
+  createBattleCard(unit, side){
+    const button = document.createElement('button');
+    const isEnemy = side === 'enemy';
+    const selected = isEnemy ? this.battle.selectedTargetId === unit.id : this.battle.selectedAnimalId === unit.id;
+    button.className = `battle-card${selected ? ' selected' : ''}${unit.hp <= 0 ? ' ko' : ''}`;
+    button.disabled = unit.hp <= 0;
+    const avatar = document.createElement('div');
+    avatar.className = `battle-avatar${isEnemy ? ` balloon ${unit.type}` : ''}`;
+    if (!isEnemy) {
+      avatar.style.setProperty('--battle-primary', unit.primary);
+      avatar.style.setProperty('--battle-secondary', unit.secondary);
+    }
+    const title = document.createElement('div');
+    title.className = 'battle-card-title';
+    title.textContent = unit.name;
+    const subtitle = document.createElement('div');
+    subtitle.className = 'battle-card-subtitle';
+    subtitle.textContent = isEnemy ? 'Ilmapallosotilas' : `Taito: ${unit.ability}`;
+    const bar = document.createElement('div');
+    bar.className = 'battle-bar';
+    const fill = document.createElement('span');
+    fill.style.width = `${Math.max(0, (unit.hp / unit.maxHp) * 100)}%`;
+    bar.appendChild(fill);
+    const meta = document.createElement('div');
+    meta.className = 'battle-card-meta';
+    meta.textContent = `HP ${unit.hp}/${unit.maxHp} | ATK ${unit.attack}${unit.shield ? ` | Kilpi ${unit.shield}` : ''}`;
+    button.appendChild(avatar);
+    button.appendChild(title);
+    button.appendChild(subtitle);
+    button.appendChild(bar);
+    button.appendChild(meta);
+    button.addEventListener('click', ()=>{
+      if (isEnemy) this.battle.selectedTargetId = unit.id;
+      else this.battle.selectedAnimalId = unit.id;
+      this.renderBattleArena();
+      this.renderBattleCollection();
+    });
+    return button;
+  }
+
+  renderBattleArena(){
+    const enemiesEl = this.battleEls.enemies;
+    const alliesEl = this.battleEls.allies;
+    const logEl = this.battleEls.log;
+    if (!enemiesEl || !alliesEl || !logEl) return;
+    enemiesEl.innerHTML = '';
+    alliesEl.innerHTML = '';
+    if (!this.battle.enemies.length) {
+      const emptyEnemy = document.createElement('div');
+      emptyEnemy.className = 'battle-log-entry';
+      emptyEnemy.textContent = 'Ilmapallosotilaat odottavat haastetta kulmapaneelissa.';
+      enemiesEl.appendChild(emptyEnemy);
+    } else {
+      this.battle.enemies.forEach((enemy)=> enemiesEl.appendChild(this.createBattleCard(enemy, 'enemy')));
+    }
+    if (!this.battle.allies.length) {
+      const emptyAlly = document.createElement('div');
+      emptyAlly.className = 'battle-log-entry';
+      emptyAlly.textContent = 'Valitse kerätyistä eläimistä joukkue vasemmalta.';
+      alliesEl.appendChild(emptyAlly);
+    } else {
+      this.battle.allies.forEach((ally)=> alliesEl.appendChild(this.createBattleCard(ally, 'ally')));
+    }
+    logEl.innerHTML = '';
+    this.battle.log.forEach((entry)=>{
+      const row = document.createElement('div');
+      row.className = 'battle-log-entry';
+      row.textContent = entry;
+      logEl.appendChild(row);
+    });
+    if (this.battleEls.start) this.battleEls.start.disabled = this.battle.inFight || !this.battle.team.length;
+    if (this.battleEls.attack) this.battleEls.attack.disabled = !this.battle.inFight;
+    if (this.battleEls.skill) this.battleEls.skill.disabled = !this.battle.inFight;
+    if (this.battleEls.heal) this.battleEls.heal.disabled = !this.battle.inFight;
   }
 
   updateWeaponSprite(){
@@ -6221,23 +6949,9 @@ class GameScene extends Phaser.Scene {
         const tx = startTx + 2 + Math.floor(rng() * (CHUNK_W - 4));
         const x = tx*TILE + TILE/2;
         const y = (SURFACE_Y-2)*TILE - 10;
-  let key='tex_pig';
-  if (biome === 'snow') {
-    const choice = rng();
-    if (choice < 0.6) key = 'tex_polarbear';
-    else if (choice < 0.8) key = 'tex_fox';
-    else key = 'tex_cow';
-  } else {
-    const choice = rng();
-    if (choice < 0.25) key='tex_pig';
-    else if (choice < 0.50) key='tex_chicken';
-    else if (choice < 0.75) key='tex_cow';
-    else key='tex_fox';
-  }
-        const a = this.animals.create(x, y, key);
-        a.setBounce(0.05, 0.0); a.setCollideWorldBounds(true); a.setVelocityX(rng()<0.5?-50:50);
-        a.body.setSize(20, 14).setOffset(4, 6);
-        if (key === 'tex_polarbear') { a.body.setSize(26, 16).setOffset(2, 6); }
+        const spec = this.pickBattleAnimalForBiome(biome, rng);
+        const a = this.animals.create(x, y, this.getBattleAnimalTextureKey(spec.id));
+        this.configureBattleAnimalSprite(a, spec, rng);
         this.chunks.get(cx)?.enemies.push(a); // reuse list for cleanup
       }
     }
@@ -6702,7 +7416,40 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  openMerchant(){ document.getElementById('merchant')?.classList.remove('hidden'); }
+  openMerchant(){
+    document.getElementById('merchant')?.classList.remove('hidden');
+    this._refreshMerchantAnimalShop();
+  }
+
+  _refreshMerchantAnimalShop(){
+    const container = document.getElementById('merchantAnimalShop');
+    if (!container) return;
+    // Valitaan 3 eläintä deterministisesti päivän ja peliajan mukaan
+    const allIds = BATTLE_ANIMAL_SPECS.map(s=>s.id);
+    const seed = (Math.floor(Date.now()/86400000) + (this.battle.wins||0)) % allIds.length;
+    const picks = [];
+    for (let i=0;i<3;i++) picks.push(allIds[(seed + i*7) % allIds.length]);
+    container.innerHTML = '';
+    picks.forEach((id)=>{
+      const spec = BATTLE_ANIMAL_MAP[id];
+      if (!spec) return;
+      const owned = this.battle.collection[id] || 0;
+      const div = document.createElement('div');
+      div.style.cssText = 'display:flex;align-items:center;gap:8px;margin:4px 0;';
+      div.innerHTML = `<span style="font-size:13px;flex:1">${spec.name} <small style="color:#888">(omistettu: ${owned})</small></span><button data-animalid="${id}" style="background:#5c6bc0;color:#fff;border:none;padding:4px 10px;border-radius:5px;cursor:pointer">Osta 5🪙</button>`;
+      div.querySelector('button').addEventListener('click', ()=>{
+        const s = window.gameScene; if (!s) return;
+        if (s.state.coins < 5) { s.showToast?.('Ei tarpeeksi kolikoita!'); return; }
+        s.state.coins -= 5;
+        s.battle.collection[id] = (s.battle.collection[id]||0) + 1;
+        if (!s.battle.team.includes(id) && s.battle.team.length < 3) s.battle.team.push(id);
+        s.showToast?.(`Ostit: ${spec.name}!`);
+        s.updateUI(); s.updateBattleUI?.(); s.saveState();
+        s._refreshMerchantAnimalShop();
+      });
+      container.appendChild(div);
+    });
+  }
   closeMerchant(){ document.getElementById('merchant')?.classList.add('hidden'); }
 
   // Health/damage and save/load
@@ -6826,7 +7573,7 @@ class GameScene extends Phaser.Scene {
   }
 
   saveState(){
-  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, bounceShoes: this.state.bounceShoes, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, soldierCloners: this.soldierClonerPositions, tankCloners: this.tankClonerPositions, torches: this.torchPositions, campfires: this.campfirePositions, mines: this.minePositions, rods: this.rodPositions, towers: this.towerPositions, traps: this.trapPositions, lamps: this.lampPositions, sofas: this.sofaPositions, tables: this.tablePositions, weather: this.weather, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic', upgrades: this.upgrades, hunger: this.hunger, food: this.food, itemBag: this.itemBag };
+  const data = { health: this.state.health, coins: this.state.coins, canFly: this.state.canFly, bounceShoes: this.state.bounceShoes, inv: this.inv, worldDiff: this.worldDiff, tools: this.tools, outfit: this.custom.outfit, cannons: this.cannonPositions, portals: this.portalPositions, slimeCloners: this.slimeClonerPositions, soldierCloners: this.soldierClonerPositions, tankCloners: this.tankClonerPositions, torches: this.torchPositions, campfires: this.campfirePositions, mines: this.minePositions, rods: this.rodPositions, towers: this.towerPositions, traps: this.trapPositions, lamps: this.lampPositions, sofas: this.sofaPositions, tables: this.tablePositions, weather: this.weather, moped: { color: this.moped.color, decal: this.moped.decal }, mode: this.mode?.current || 'classic', upgrades: this.upgrades, hunger: this.hunger, food: this.food, itemBag: this.itemBag, battle: { collection: this.battle.collection, team: this.battle.team, wins: this.battle.wins, losses: this.battle.losses, wave: this.battle.wave } };
     try {
       const wid = window.localStorage.getItem('UAG_worldCurrent') || 'world-1';
       localStorage.setItem(`UAG_save_${wid}`, JSON.stringify(data));
@@ -6903,6 +7650,18 @@ class GameScene extends Phaser.Scene {
     this.itemBag.speedUntil = d.itemBag.speedUntil||0;
     this.itemBag.shieldUntil = d.itemBag.shieldUntil||0;
     this.itemBag.decoyUntil = d.itemBag.decoyUntil||0;
+  }
+  if (d.battle) {
+    const validIds = new Set(BATTLE_ANIMAL_SPECS.map((spec)=> spec.id));
+    const nextCollection = {};
+    Object.entries(d.battle.collection || {}).forEach(([id, count])=>{
+      if (validIds.has(id) && typeof count === 'number' && count > 0) nextCollection[id] = Math.floor(count);
+    });
+    this.battle.collection = nextCollection;
+    this.battle.team = Array.isArray(d.battle.team) ? d.battle.team.filter((id, index, arr)=> validIds.has(id) && arr.indexOf(id) === index).slice(0, 3) : [];
+    this.battle.wins = Math.max(0, d.battle.wins || 0);
+    this.battle.losses = Math.max(0, d.battle.losses || 0);
+    this.battle.wave = Math.max(1, d.battle.wave || 1);
   }
   // Ensure pistol, cannon, minigun, knife, sniper & bazooka exist for older saves
   if (!this.tools.owned?.pistol) this.tools.owned.pistol = true;
@@ -7094,6 +7853,244 @@ class GameScene extends Phaser.Scene {
       s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
       return ((s >>> 0) % 1000000) / 1000000;
     };
+  }
+
+  // --- Dog System ---
+  createDogMenu() {
+    this.dogMenu = document.createElement('div');
+    Object.assign(this.dogMenu.style, {
+      position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+      backgroundColor: 'rgba(0, 0, 0, 0.85)', padding: '20px', borderRadius: '10px',
+      color: 'white', display: 'none', flexDirection: 'column', gap: '8px', zIndex: '2000',
+      boxShadow: '0 0 15px rgba(255,255,255,0.2)'
+    });
+    this.dogMenu.innerHTML = `
+      <h3 style="margin:0">Koira: <span id="dogName">Musti</span></h3>
+      <div id="dogStats" style="font-size:12px; color:#ccc;"></div>
+      <button id="btnDogPet" style="padding:6px;">👋 Silitä</button>
+      <button id="btnDogMode" style="padding:6px;">⚔️ Tila: Seuraa</button>
+      <div style="display:flex; gap:5px;">
+        <button id="btnDogTakeMoney" style="flex:1; padding:6px;">💰 Ota rahat</button>
+        <button id="btnDogGiveMoney" style="flex:1; padding:6px;">💵 Anna (10)</button>
+      </div>
+      <div>
+        <strong>Repun sisältö (17 max):</strong>
+        <div id="dogInv" style="display:flex; flex-wrap:wrap; gap:4px; max-width:200px; max-height:100px; overflow-y:auto; margin-top:5px; background:#222; padding:4px; min-height:30px;"></div>
+      </div>
+      <button id="btnDogClose" style="margin-top:10px; background:#444; padding:6px;">Sulje</button>
+    `;
+    document.body.appendChild(this.dogMenu);
+
+    this.dogMenu.querySelector('#btnDogPet').onclick = () => {
+      this.dogHeartEffect();
+      this.showToast('Silitit koiraa! ❤️');
+    };
+    this.dogMenu.querySelector('#btnDogMode').onclick = (e) => {
+      const modes = ['follow', 'attack', 'fetch'];
+      let idx = modes.indexOf(this.dogState.mode);
+      this.dogState.mode = modes[(idx + 1) % modes.length];
+      e.target.textContent = `⚔️ Tila: ${this.dogState.mode === 'follow' ? 'Seuraa' : this.dogState.mode === 'attack' ? 'Hyökkää' : 'Etsi rahaa'}`;
+      this.refreshDogMenu();
+      this.showToast(`Koiran tila: ${this.dogState.mode}`);
+    };
+    this.dogMenu.querySelector('#btnDogTakeMoney').onclick = () => {
+      if (this.dogState.money > 0) {
+        this.state.coins += this.dogState.money;
+        this.updateUI();
+        this.showToast(`Otit koiralta ${this.dogState.money} kolikkoa.`);
+        this.dogState.money = 0;
+        this.refreshDogMenu();
+      } else {
+        this.showToast('Koiralla ei ole rahaa.');
+      }
+    };
+    this.dogMenu.querySelector('#btnDogGiveMoney').onclick = () => {
+      if (this.state.coins >= 10) {
+        this.state.coins -= 10;
+        this.dogState.money += 10;
+        this.updateUI();
+        this.refreshDogMenu();
+        this.showToast('Annoit koiralle 10 kolikkoa.');
+      } else {
+        this.showToast('Ei tarpeeksi rahaa!');
+      }
+    };
+    this.dogMenu.querySelector('#btnDogClose').onclick = () => {
+      this.hideDogMenu();
+    };
+  }
+
+  showDogMenu() {
+    if (!this.dogMenu) this.createDogMenu();
+    this.refreshDogMenu();
+    this.dogMenu.style.display = 'flex';
+  }
+
+  hideDogMenu() {
+    if (this.dogMenu) this.dogMenu.style.display = 'none';
+    this.resumeGame();
+  }
+
+  refreshDogMenu() {
+    if (!this.dogMenu) return;
+    const s = this.dogMenu.querySelector('#dogName');
+    if (s) s.textContent = this.dogState.name;
+    const stats = this.dogMenu.querySelector('#dogStats');
+    if (stats) stats.textContent = `Rahaa: ${this.dogState.money} | Tila: ${this.dogState.mode}`;
+    
+    // Inventory
+    const div = this.dogMenu.querySelector('#dogInv');
+    div.innerHTML = '';
+    if (this.dogState.inventory.length === 0) {
+      div.textContent = '(Tyhjä)';
+      div.style.color = '#888';
+    } else {
+      div.style.color = '#fff';
+      this.dogState.inventory.forEach((item, i) => {
+        const el = document.createElement('div');
+        el.textContent = item;
+        el.style.cssText = 'background:#555; padding:2px 6px; border-radius:3px; font-size:11px; cursor:pointer; margin:2px;';
+        el.title = 'Klikkaa ottaaksesi';
+        el.onclick = () => {
+          // Move item to player
+          this.dogState.inventory.splice(i, 1);
+          if (this.inv[item] !== undefined) this.inv[item]++;
+          else if (item==='wood') this.inv.wood++; // fallback
+          else if (item==='stone') this.inv.stone++;
+          else if (item==='plank') this.inv.plank++;
+          
+          this.updateInventoryUI();
+          this.showToast(`Otit tavaran: ${item}`);
+          this.refreshDogMenu();
+        };
+        div.appendChild(el);
+      });
+    }
+  }
+
+  dogHeartEffect() {
+    try {
+      const h = this.add.text(this.dog.x, this.dog.y - 20, '❤️', {fontSize:'20px'});
+      this.tweens.add({ targets: h, y: h.y - 30, alpha: 0, duration: 800, onComplete: ()=>h.destroy() });
+      if (window.playSfx) window.playSfx('powerup');
+    } catch(e){}
+  }
+
+  toggleDogActive() {
+    if (!this.dog) return;
+    this.dogState.active = !this.dogState.active;
+    if (this.dogState.active) {
+      this.dog.setAlpha(1.0);
+      this.showToast('Koira aktivoitu! 🐶');
+    } else {
+      this.dog.setAlpha(0.6); // Dim when sleeping
+      this.showToast('Koira huilaa. 💤');
+    }
+  }
+
+  onDogPickup(dog, pickup) {
+    if (!this.dogState.active || this.dogState.mode !== 'fetch') return;
+    if (pickup.texture.key === 'tex_coin') {
+      pickup.destroy();
+      this.dogState.money += 1;
+      const t = this.add.text(dog.x, dog.y-20, '+1💰', { fontSize:'12px', color:'#ffdd00', stroke:'#000', strokeThickness:2 }).setDepth(200);
+      this.tweens.add({ targets:t, y:t.y-20, alpha:0, duration:600, onComplete:()=>t.destroy() });
+    } else if (this.dogState.inventory.length < 17) {
+       // Also pick up wood/stone?
+       let type = null;
+       if (pickup.texture.key === 'tex_woodItem') type = 'wood';
+       else if (pickup.texture.key === 'tex_stoneItem') type = 'stone';
+       
+       if (type) {
+           pickup.destroy();
+           this.dogState.inventory.push(type);
+           const t = this.add.text(dog.x, dog.y-20, `+${type}`, { fontSize:'10px', color:'#fff', stroke:'#000', strokeThickness:2 }).setDepth(200);
+           this.tweens.add({ targets:t, y:t.y-20, alpha:0, duration:600, onComplete:()=>t.destroy() });
+       }
+    }
+  }
+
+  updateDog() {
+    if (!this.dog || !this.dog.active) return;
+    if (!this.dogState.active || this._timeStopped) { this.dog.setVelocity(0,0); return; }
+    
+    const speed = this.dogState.stats.speed;
+    const px = this.player.x, py = this.player.y;
+    const dx = px - this.dog.x, dy = py - this.dog.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+
+    let targetX = px;
+    let shouldMove = false;
+    let jump = false;
+
+    if (this.dogState.mode === 'attack') {
+        let best = null, bestDist = 250;
+        const enemies = [this.zombies, this.slimes, this.wolves, this.birds, this.enemySoldiers];
+        enemies.forEach(group => {
+            group?.children?.iterate(e => {
+                if (e && e.active) {
+                    const edx = e.x - this.dog.x, edy = e.y - this.dog.y;
+                    const d = Math.sqrt(edx*edx + edy*edy);
+                    if (d < bestDist) { bestDist = d; best = e; }
+                }
+            });
+        });
+
+        if (best) {
+            targetX = best.x;
+            shouldMove = true;
+            if (bestDist < 24) {
+                 if (this.time.now > (this.dog._nextAttack||0)) {
+                     this.dog._nextAttack = this.time.now + 800;
+                     if (best.takeDamage) best.takeDamage(this.dogState.stats.damage);
+                     else { best.destroy(); this.dropCoins(best.x, best.y, 1); }
+                     try {window.playSfx?.('hit');}catch(e){}
+                     const t = this.add.text(best.x, best.y, 'BORK!', {fontSize:'10px', color:'#fff', stroke:'#000', strokeThickness:2});
+                     this.time.delayedCall(300, ()=>t.destroy());
+                 }
+            } else if (best.y < this.dog.y - 20) {
+              jump = true;
+            }
+        } else {
+             if (dist > 60) shouldMove = true;
+        }
+    } else if (this.dogState.mode === 'fetch') {
+        let best = null, bestDist = 300;
+        this.pickups?.children?.iterate(c => {
+             if (c && c.active && (c.texture.key === 'tex_coin' || c.texture.key === 'tex_woodItem' || c.texture.key === 'tex_stoneItem')) {
+                const cdx = c.x - this.dog.x, cdy = c.y - this.dog.y;
+                const d = Math.sqrt(cdx*cdx + cdy*cdy);
+                if (d < bestDist) { bestDist = d; best = c; }
+             }
+        });
+        if (best) {
+            targetX = best.x; shouldMove = true;
+            if (best.y < this.dog.y - 20) jump = true;
+        } else {
+             if (dist > 60) shouldMove = true;
+        }
+    } else { // Follow
+        if (dist > 50) shouldMove = true;
+        if (py < this.dog.y - 40 && dist < 100) jump = true;
+    }
+
+    if (shouldMove) {
+        const moveDx = targetX - this.dog.x;
+        const moveDir = Math.sign(moveDx);
+        if (Math.abs(moveDx) > 8) {
+            this.dog.setVelocityX(moveDir * speed);
+            this.dog.setFlipX(moveDir < 0);
+        } else {
+            this.dog.setVelocityX(0);
+        }
+    } else {
+        this.dog.setVelocityX(0);
+    }
+    
+    // Jump
+    if ((jump || (this.dog.body.blocked.left || this.dog.body.blocked.right)) && this.dog.body.blocked.down) {
+         this.dog.setVelocityY(-360);
+    }
   }
 }
 
@@ -7418,6 +8415,8 @@ class MinigameScene extends Phaser.Scene {
     gameScene?.onReturnFromMinigame?.();
     this.scene.stop();
   }
+
+
 }
 const config = {
   type: Phaser.AUTO,

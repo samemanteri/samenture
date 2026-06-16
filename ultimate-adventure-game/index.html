@@ -39,6 +39,21 @@
   <div id="itemHints" class="hidden"></div>
 </div>
 
+<div id="battleRadar" aria-label="Ilmapallosotilaiden haaste">
+  <button id="battleRadarBtn" title="Avaa taistelulava">
+    <div class="battle-radar-art" aria-hidden="true">
+      <span class="balloon-soldier red"></span>
+      <span class="balloon-soldier amber"></span>
+      <span class="balloon-soldier steel"></span>
+    </div>
+    <div class="battle-radar-copy">
+      <strong>Ilmapallosotilaat haluavat taistella</strong>
+      <span id="battleRadarStatus">Aalto 1 odottaa</span>
+      <span id="battleRadarAnimals">Taistelueläimet 0/30</span>
+    </div>
+  </button>
+</div>
+
 <div id="settingsMenu" class="hidden">
   <label><input type="checkbox" id="toggleFly"> Salli lentäminen</label><br>
   <label><input type="checkbox" id="showHearts" checked> Näytä sydämet</label><br>
@@ -61,6 +76,7 @@
   </label>
   <hr>
   <strong>Hahmon ulkoasu</strong><br>
+  <label><input type="checkbox" id="dogEnable"> Koira-kumppani</label><br>
   <label>Paita: <input type="color" id="shirtColor" value="#4477ff"></label><br>
   <label>Housut: <input type="color" id="pantsColor" value="#333333"></label><br>
   <label><input type="checkbox" id="eyesGlow"> Hohtavat silmät</label><br>
@@ -199,6 +215,9 @@
   <button id="buyRifleStone">Osta kivääri kivillä</button>
   <div style="margin-top:6px">Palkkaa sotilas rakettirepulla — 30 kiveä</div>
   <button id="hireJetSoldier">Palkkaa sotilas</button>
+  <hr>
+  <div><strong>🐾 Taistelueläimet</strong> — 5 kolikkoa / eläin</div>
+  <div id="merchantAnimalShop" style="margin-top:6px"></div>
     <br>
     <small>Vinkit: 1-5 vaihda työkaluja, Q kierrätä.</small>
     <br>
@@ -258,6 +277,53 @@
   </div>
   
 </div>
+
+<div id="battleArena" class="battle-overlay hidden">
+  <div class="battle-shell">
+    <div class="battle-head">
+      <div>
+        <h3>Taistelulava</h3>
+        <p>Kerää 30 erilaista taistelueläintä maailmasta ja lähetä enintään kolme niistä ilmapallosotilaita vastaan.</p>
+      </div>
+      <button id="battleClose">Sulje</button>
+    </div>
+
+    <div class="battle-meta">
+      <div id="battleWave">Aalto 1</div>
+      <div id="battleRecord">Voitot 0 | Tappiot 0</div>
+      <div id="battleCollectionCount">Kerätty 0/30</div>
+    </div>
+
+    <div class="battle-stage">
+      <section class="battle-panel">
+        <h4>Taistelueläimet</h4>
+        <div id="battleTeamChips" class="battle-team-chips"></div>
+        <div id="battleCollectionGrid" class="battle-collection-grid"></div>
+      </section>
+
+      <section class="battle-panel battle-center">
+        <h4>Taistelu</h4>
+        <div class="battle-lane enemy">
+          <div id="battleEnemies" class="battle-card-row"></div>
+        </div>
+        <div class="battle-actions">
+          <button id="battleStart">Aloita taistelu</button>
+          <button id="battleAttack">Hyökkää</button>
+          <button id="battleSkill">Erikoistaito</button>
+          <button id="battleHeal">Paranna</button>
+        </div>
+        <div class="battle-lane ally">
+          <div id="battleAllies" class="battle-card-row"></div>
+        </div>
+      </section>
+
+      <section class="battle-panel">
+        <h4>Taisteluloki</h4>
+        <div id="battleLog" class="battle-log"></div>
+      </section>
+    </div>
+  </div>
+</div>
 <script>
   // Simple UI SFX: menu button clicks
   const resumeAndClick = (name)=>{ try{ window.Sfx?.resume(); }catch(e){} try{ window.playSfx?.(name||'menu'); }catch(e){} };
@@ -271,6 +337,12 @@
   document.getElementById('btnMiniMurder')?.addEventListener('click', ()=> resumeAndClick('menu'));
   document.getElementById('btnMiniParkour')?.addEventListener('click', ()=> resumeAndClick('menu'));
   document.getElementById('btnMiniDesert')?.addEventListener('click', ()=> resumeAndClick('menu'));
+  document.getElementById('battleRadarBtn')?.addEventListener('click', ()=> resumeAndClick('menu'));
+  document.getElementById('battleClose')?.addEventListener('click', ()=> resumeAndClick('menu'));
+  document.getElementById('battleStart')?.addEventListener('click', ()=> resumeAndClick('menu'));
+  document.getElementById('battleAttack')?.addEventListener('click', ()=> resumeAndClick('menu'));
+  document.getElementById('battleSkill')?.addEventListener('click', ()=> resumeAndClick('menu'));
+  document.getElementById('battleHeal')?.addEventListener('click', ()=> resumeAndClick('menu'));
 </script>
 </body>
 </html>
