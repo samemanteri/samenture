@@ -15,6 +15,7 @@ const BATTLE_ANIMAL_TEXTURE_PREFIX = 'tex_ba_';
 const BATTLE_ANIMAL_SPECS = [
   { id: 'kettu', name: 'Kettu', form: 'runner', ability: 'focus', hp: 24, attack: 7, biomes: ['forest'], colors: { primary: 0xd97a1d, secondary: 0xffd18f, accent: 0x2a1a10 } },
   { id: 'susi', name: 'Susi', form: 'runner', ability: 'pack', hp: 28, attack: 8, biomes: ['forest'], colors: { primary: 0x6f7c84, secondary: 0xc8d0d5, accent: 0x222222 } },
+  { id: 'isosusi', name: 'Iso susi', form: 'runner', ability: 'charge', hp: 40, attack: 11, biomes: ['forest', 'snow'], colors: { primary: 0x4e5962, secondary: 0xb8c5cc, accent: 0x1b2025 } },
   { id: 'ilves', name: 'Ilves', form: 'runner', ability: 'focus', hp: 26, attack: 9, biomes: ['forest'], colors: { primary: 0xb47b45, secondary: 0xf1c79f, accent: 0x2b2119 } },
   { id: 'karhu', name: 'Karhu', form: 'tank', ability: 'guard', hp: 34, attack: 7, biomes: ['forest'], colors: { primary: 0x74492f, secondary: 0xc29b79, accent: 0x1f140f } },
   { id: 'hirvi', name: 'Hirvi', form: 'horned', ability: 'charge', hp: 32, attack: 8, biomes: ['forest'], colors: { primary: 0x846340, secondary: 0xc7a680, accent: 0xead7b0 } },
@@ -24,6 +25,7 @@ const BATTLE_ANIMAL_SPECS = [
   { id: 'metso', name: 'Metso', form: 'bird', ability: 'splash', hp: 23, attack: 7, biomes: ['forest'], colors: { primary: 0x3f4a52, secondary: 0x9ea8af, accent: 0xb53a2f } },
   { id: 'pollo', name: 'Pöllö', form: 'bird', ability: 'focus', hp: 22, attack: 8, biomes: ['forest'], colors: { primary: 0x7e674f, secondary: 0xd8c0a4, accent: 0xffefc2 } },
   { id: 'kotka', name: 'Kotka', form: 'bird', ability: 'freeze', hp: 24, attack: 9, biomes: ['forest'], colors: { primary: 0x715739, secondary: 0xdac6a8, accent: 0xffd24a } },
+  { id: 'haukka', name: 'Haukka', form: 'bird', ability: 'focus', hp: 26, attack: 10, biomes: ['forest'], colors: { primary: 0x8b7355, secondary: 0xe8d6b8, accent: 0xffc84a } },
   { id: 'joutsen', name: 'Joutsen', form: 'bird', ability: 'heal', hp: 27, attack: 6, biomes: ['ocean'], colors: { primary: 0xf2f6fb, secondary: 0xb8d5ea, accent: 0xffb347 } },
   { id: 'sammakko', name: 'Sammakko', form: 'reptile', ability: 'poison', hp: 21, attack: 7, biomes: ['forest', 'ocean'], colors: { primary: 0x47a447, secondary: 0xaee088, accent: 0x173f17 } },
   { id: 'kilpikonna', name: 'Kilpikonna', form: 'tank', ability: 'shell', hp: 36, attack: 6, biomes: ['ocean'], colors: { primary: 0x3a8c61, secondary: 0xc9b27d, accent: 0x244835 } },
@@ -42,7 +44,8 @@ const BATTLE_ANIMAL_SPECS = [
   { id: 'lumileopardi', name: 'Lumileopardi', form: 'runner', ability: 'focus', hp: 25, attack: 10, biomes: ['snow'], colors: { primary: 0xd7dee3, secondary: 0xffffff, accent: 0x37424a } },
   { id: 'hylje', name: 'Hylje', form: 'aquatic', ability: 'heal', hp: 29, attack: 7, biomes: ['snow', 'ocean'], colors: { primary: 0x8ca0ac, secondary: 0xeaf3f8, accent: 0x2f3e47 } },
   { id: 'villisika', name: 'Villisika', form: 'tank', ability: 'crush', hp: 32, attack: 8, biomes: ['forest'], colors: { primary: 0x6e4a31, secondary: 0xc59a73, accent: 0xf7f0df } },
-  { id: 'harka', name: 'Härkä', form: 'horned', ability: 'charge', hp: 34, attack: 9, biomes: ['forest', 'desert'], colors: { primary: 0x5b4637, secondary: 0xbca48d, accent: 0xf1ead6 } }
+  { id: 'harka', name: 'Härkä', form: 'horned', ability: 'charge', hp: 34, attack: 9, biomes: ['forest', 'desert'], colors: { primary: 0x5b4637, secondary: 0xbca48d, accent: 0xf1ead6 } },
+  { id: 'lohikaarme', name: 'Lohikäärme', form: 'reptile', ability: 'splash', hp: 46, attack: 12, biomes: ['desert', 'snow', 'forest'], colors: { primary: 0x3f8f78, secondary: 0xbce0cf, accent: 0xff715e } }
 ];
 const BATTLE_ANIMAL_MAP = Object.fromEntries(BATTLE_ANIMAL_SPECS.map((spec) => [spec.id, spec]));
 const BALLOON_SOLDIER_ARCHETYPES = [
@@ -51,6 +54,43 @@ const BALLOON_SOLDIER_ARCHETYPES = [
   { id: 'captain', name: 'Komentajapallo', hp: 30, attack: 8 }
 ];
 const BATTLE_TEAM_LIMIT = 80;
+const SPECIAL_MOUNT_SPECS = {
+  hawk: {
+    key: 'hawk',
+    battleId: 'haukka',
+    name: 'Haukka',
+    textures: ['tex_special_hawk_0', 'tex_special_hawk_1'],
+    speed: 460,
+    arrive: 22,
+    riderOffsetY: -26,
+    body: { width: 72, height: 26, offsetX: 16, offsetY: 18 },
+    prompt: 'F/Alas: Haukka'
+  },
+  dragon: {
+    key: 'dragon',
+    battleId: 'lohikaarme',
+    name: 'Lohikäärme',
+    textures: ['tex_special_dragon_0', 'tex_special_dragon_1'],
+    speed: 270,
+    arrive: 30,
+    riderOffsetY: -34,
+    body: { width: 118, height: 36, offsetX: 18, offsetY: 34 },
+    prompt: 'F/Alas: Lohikäärme'
+  },
+  direwolf: {
+    key: 'direwolf',
+    battleId: 'isosusi',
+    name: 'Iso susi',
+    textures: ['tex_special_direwolf_0', 'tex_special_direwolf_1'],
+    speed: 350,
+    jumpVelocity: -760,
+    arrive: 22,
+    riderOffsetY: -34,
+    ground: true,
+    body: { width: 86, height: 38, offsetX: 16, offsetY: 30 },
+    prompt: 'F/Alas: Iso susi'
+  }
+};
 
 function toCssHex(color) {
   return `#${color.toString(16).padStart(6, '0')}`;
@@ -166,6 +206,11 @@ class GameScene extends Phaser.Scene {
   this.plane = { sprite: null, turrets: [], mounted: false, zone: null, prompt: null, speedMult: 2.2 };
   this.nearPlane = false;
 
+  // Special rideable animals
+  this.specialAnimals = {};
+  this.mountedSpecialAnimal = null;
+  this.nearSpecialAnimal = null;
+
   // Weather: thunderstorms
   this.weather = { isStorm: false, nextLightningAt: 0, nextStormCheckAt: 0, stormEndsAt: 0 };
   // Hunger/food state
@@ -185,7 +230,7 @@ class GameScene extends Phaser.Scene {
   this._nextBirdAt = 0;
   this._nextPeckerAt = 0;
   // Item bag: glider, jetpack, invisibility, speed, shield, decoy
-  this.itemBag = { glider: false, jetpack: false, invis: false, speedUntil: 0, shieldUntil: 0, decoyUntil: 0, timeCdUntil: 0, timeActiveUntil: 0 };
+  this.itemBag = { glider: false, jetpack: false, invis: false, speedUntil: 0, shieldUntil: 0, decoyUntil: 0 };
   this._timeStopped = false; // deprecated, kept for migration safety
 
   // Torches (light sources) prevent zombie spawns nearby
@@ -1197,6 +1242,99 @@ class GameScene extends Phaser.Scene {
   g.fillStyle(0x000000,1); g.fillRect(24,7,2,2);
   g.fillStyle(0xddeaf7,1); g.fillRect(6,18,5,4); g.fillRect(16,18,5,4);
   g.generateTexture('tex_polarbear',32,22); g.clear();
+  // Special rideable hawk: two wing poses for flapping
+  const drawSpecialHawk = (key, wingUp)=>{
+    g.clear();
+    g.fillStyle(0xe8d6b8,1);
+    if (wingUp) {
+      g.fillTriangle(35,25,4,4,18,32);
+      g.fillTriangle(51,25,96,4,82,34);
+    } else {
+      g.fillTriangle(34,28,2,48,25,38);
+      g.fillTriangle(52,28,100,50,76,38);
+    }
+    g.fillStyle(0x6a5239,1);
+    if (wingUp) {
+      g.fillTriangle(35,25,14,12,22,28);
+      g.fillTriangle(51,25,84,12,76,29);
+    } else {
+      g.fillTriangle(34,29,16,42,27,36);
+      g.fillTriangle(52,29,82,42,74,36);
+    }
+    g.fillStyle(0x8b7355,1); g.fillEllipse(44,30,38,20);
+    g.fillStyle(0x5f4a32,1); g.fillEllipse(64,25,20,15);
+    g.fillStyle(0xf3e1c4,1); g.fillEllipse(68,28,10,6);
+    g.fillStyle(0xffc84a,1); g.fillTriangle(75,25,92,29,75,33);
+    g.fillStyle(0x111111,1); g.fillCircle(69,23,2);
+    g.fillStyle(0x3b2a1b,1); g.fillTriangle(20,30,6,24,8,36);
+    g.fillStyle(0xffc84a,1); g.fillRect(36,39,4,10); g.fillRect(48,39,4,10);
+    g.fillStyle(0x3b2a1b,1); g.fillRect(34,48,8,2); g.fillRect(46,48,8,2);
+    g.generateTexture(key, 104, 58);
+  };
+  drawSpecialHawk('tex_special_hawk_0', true);
+  drawSpecialHawk('tex_special_hawk_1', false);
+  g.clear();
+
+  // Special rideable dragon: two wing poses for slower, heavier flapping
+  const drawSpecialDragon = (key, wingUp)=>{
+    g.clear();
+    g.fillStyle(0xbce0cf,1);
+    if (wingUp) {
+      g.fillTriangle(56,36,28,4,44,42);
+      g.fillTriangle(82,35,118,4,104,43);
+    } else {
+      g.fillTriangle(55,39,22,66,48,50);
+      g.fillTriangle(83,39,126,66,101,50);
+    }
+    g.fillStyle(0x2f6d5c,1);
+    if (wingUp) {
+      g.fillTriangle(56,36,36,16,46,38);
+      g.fillTriangle(82,35,108,16,100,39);
+    } else {
+      g.fillTriangle(55,40,34,58,49,49);
+      g.fillTriangle(83,40,111,58,99,49);
+    }
+    g.fillStyle(0x3f8f78,1); g.fillRoundedRect(22,38,82,24,10);
+    g.fillStyle(0x5db69d,1); g.fillRoundedRect(92,28,38,25,9);
+    g.fillStyle(0x2f6d5c,1); g.fillTriangle(22,49,2,34,3,66);
+    g.fillStyle(0xbce0cf,1); g.fillRect(36,61,8,14); g.fillRect(76,61,8,14);
+    g.fillStyle(0x2f6d5c,1); g.fillRect(34,73,14,4); g.fillRect(74,73,14,4);
+    g.fillStyle(0xff715e,1); g.fillTriangle(100,25,104,10,110,27); g.fillTriangle(116,25,128,14,125,33);
+    g.fillStyle(0xf6f0d0,1); g.fillTriangle(125,41,142,37,126,48);
+    g.fillStyle(0x111111,1); g.fillCircle(112,36,2.2);
+    g.fillStyle(0x2f6d5c,1);
+    for (let x=38; x<=88; x+=12) g.fillTriangle(x,38,x+5,28,x+10,38);
+    g.generateTexture(key, 150, 86);
+  };
+  drawSpecialDragon('tex_special_dragon_0', true);
+  drawSpecialDragon('tex_special_dragon_1', false);
+  g.clear();
+
+  // Special rideable big wolf: two stride poses
+  const drawSpecialDirewolf = (key, stride)=>{
+    g.clear();
+    g.fillStyle(0x26313a,1); g.fillEllipse(60,46,84,34);
+    g.fillStyle(0x4e5962,1); g.fillRoundedRect(24,30,74,32,13);
+    g.fillStyle(0x5d6872,1); g.fillRoundedRect(84,18,34,28,10);
+    g.fillStyle(0xb8c5cc,1); g.fillEllipse(96,42,26,10);
+    g.fillStyle(0x1b2025,1); g.fillTriangle(88,19,94,2,101,22); g.fillTriangle(108,18,119,4,116,28);
+    g.fillStyle(0xd8e3e8,1); g.fillTriangle(118,32,136,37,118,42);
+    g.fillStyle(0x111111,1); g.fillCircle(105,29,2.2);
+    g.fillStyle(0x2f3942,1); g.fillTriangle(24,42,2,26,6,54);
+    g.fillStyle(0x4e5962,1);
+    if (stride) {
+      g.fillRect(34,58,9,24); g.fillRect(54,56,9,18); g.fillRect(75,58,9,24); g.fillRect(91,55,9,20);
+      g.fillStyle(0x1b2025,1); g.fillRect(30,80,18,5); g.fillRect(52,72,16,5); g.fillRect(72,80,18,5); g.fillRect(88,73,18,5);
+    } else {
+      g.fillRect(34,56,9,18); g.fillRect(54,58,9,24); g.fillRect(75,55,9,20); g.fillRect(91,58,9,24);
+      g.fillStyle(0x1b2025,1); g.fillRect(30,72,18,5); g.fillRect(52,80,16,5); g.fillRect(72,73,18,5); g.fillRect(88,80,18,5);
+    }
+    g.fillStyle(0xe8f0f2,0.9); g.fillEllipse(92,32,8,4);
+    g.generateTexture(key, 142, 90);
+  };
+  drawSpecialDirewolf('tex_special_direwolf_0', false);
+  drawSpecialDirewolf('tex_special_direwolf_1', true);
+  g.clear();
   this.generateBattleAnimalTextures(g);
   // Meat item
   g.fillStyle(0xaa3b2f,1); g.fillRect(2,2,12,8); g.fillStyle(0xffcbbd,1); g.fillRect(12,3,2,6); g.generateTexture('tex_meat',16,12); g.clear();
@@ -1435,6 +1573,10 @@ class GameScene extends Phaser.Scene {
     // On touch, use placeMode toggle to place plank with a tap
     this.input.on('pointerdown', (pointer) => {
       if (!this.started || this.isPaused) return;
+      if (this.mountedSpecialAnimal) {
+        this.setSpecialAnimalTargetFromPointer(pointer);
+        return;
+      }
       // Ninja mode overrides: left = sword, right = knife
       if (this.ninja.active) {
         if (pointer.rightButtonDown()) this.ninjaThrowKnife(pointer); else this.ninjaSwordSlash(pointer);
@@ -1649,6 +1791,7 @@ class GameScene extends Phaser.Scene {
     // Mopo: F nouse/poistu, Shift = turbo
     this.input.keyboard.on('keydown-F', ()=>{
       if (!this.started || this.isPaused) return;
+  if (this.mountedSpecialAnimal || this.nearSpecialAnimal) { this.toggleSpecialAnimalMount(this.mountedSpecialAnimal || this.nearSpecialAnimal); return; }
   if (this.nearMoped) this.toggleMoped();
   if (this.nearCar) this.toggleCar();
     if (this.nearTank) this.toggleTank();
@@ -1658,14 +1801,16 @@ class GameScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-DOWN', ()=>{
       if (!this.started || this.isPaused) return;
       // If near car and not mounted, enter. If mounted, allow exit too.
-  if ((this.nearCar && !this.car.mounted) || this.car.mounted) this.toggleCar();
+  if (this.mountedSpecialAnimal || this.nearSpecialAnimal) this.toggleSpecialAnimalMount(this.mountedSpecialAnimal || this.nearSpecialAnimal);
+  else if ((this.nearCar && !this.car.mounted) || this.car.mounted) this.toggleCar();
   else if ((this.nearTank && !this.tank?.mounted) || this.tank?.mounted) this.toggleTank();
   else if ((this.nearPlane && !this.plane.mounted) || this.plane.mounted) this.togglePlane();
     });
     // Also support cursor down key object
     this.cursors?.down?.on('down', ()=>{
       if (!this.started || this.isPaused) return;
-  if ((this.nearCar && !this.car.mounted) || this.car.mounted) this.toggleCar();
+  if (this.mountedSpecialAnimal || this.nearSpecialAnimal) this.toggleSpecialAnimalMount(this.mountedSpecialAnimal || this.nearSpecialAnimal);
+  else if ((this.nearCar && !this.car.mounted) || this.car.mounted) this.toggleCar();
   else if ((this.nearTank && !this.tank?.mounted) || this.tank?.mounted) this.toggleTank();
   else if ((this.nearPlane && !this.plane.mounted) || this.plane.mounted) this.togglePlane();
     });
@@ -1708,6 +1853,7 @@ class GameScene extends Phaser.Scene {
   '\nC/V = craftaa 3 puusta 1 lankku  |  E = kauppias  |  1-9/Q = työkalut' +
       '\nSpace = liaani  |  R = Tykki-tila (Minigun/Tarkka)' +
   '\nM = Pelitila (Klassinen / Star / Spider / Wizard)' +
+  '\nEläimet-nappi: kutsu haukka, lohikäärme tai iso susi. F/Alas kyytiin, vedä hiirellä kohde' +
   '\nTeleportti: oikea klikkaus asettaa (8 puuta). Vasen poistaa. R vaihtaa väriä. Mene porttiin: 1,2,3 -> siirto.' +
   '\nLimaklooni: oikea asettaa laitteen, vasen poistaa. Tuottaa limoja ajan kanssa.' +
       '\nPunainen timantti -> Lento  |  Vesi: uida ylös/alas Ylöksellä/Space' +
@@ -1802,7 +1948,6 @@ class GameScene extends Phaser.Scene {
 
   // Item bag UI
   const btnG = document.getElementById('itemGlider');
-  const btnT = document.getElementById('itemTime');
   const btnJ = document.getElementById('itemJet');
   const btnI = document.getElementById('itemInvis');
   const btnS = document.getElementById('itemSpeed');
@@ -1818,43 +1963,24 @@ class GameScene extends Phaser.Scene {
       btnS?.classList.toggle('active', (this.itemBag.speedUntil||0) > this.time.now);
       btnSh?.classList.toggle('active', (this.itemBag.shieldUntil||0) > this.time.now);
       btnD?.classList.toggle('active', (this.itemBag.decoyUntil||0) > this.time.now);
-      const left = Math.max(0, (this.itemBag.timeCdUntil||0) - this.time.now);
-      if (cool) {
-        if (left>0) { cool.textContent = `Ajan pysäytin cd: ${(left/1000).toFixed(1)}s`; cool.classList.remove('hidden'); }
-        else { cool.classList.add('hidden'); }
-      }
+      cool?.classList.add('hidden');
     }catch(e){}
   };
   btnG?.addEventListener('click', ()=>{ this.itemBag.glider = !this.itemBag.glider; this.showToast(this.itemBag.glider?'Liitosiivet: päällä':'Liitosiivet: pois'); this._refreshItemBagUI(); this.saveState(); });
   btnI?.addEventListener('click', ()=>{ this.toggleInvisibility(); });
   btnJ?.addEventListener('click', ()=>{ this.itemBag.jetpack = !this.itemBag.jetpack; this.showToast(this.itemBag.jetpack?'Rakettireppu: päällä':'Rakettireppu: pois'); this._refreshItemBagUI(); this.saveState(); });
-  btnT?.addEventListener('click', ()=>{ this.tryTimeStop(); });
   btnS?.addEventListener('click', ()=>{ this.activateSpeedBoost(); });
   btnSh?.addEventListener('click', ()=>{ this.activateShield(); });
   btnD?.addEventListener('click', ()=>{ this.deployDecoy(); });
   btnH?.addEventListener('click', ()=>{ this.buildHouseNearPlayer(); });
-  // Hotkeys: V start time stop, Å cancels early (if keyboard/layout supports it)
-  this.input.keyboard.on('keydown-V', ()=>{ if (this.started && !this.isPaused) this.tryTimeStop(); });
-  this.input.keyboard.on('keydown-Å', ()=>{ if (this.itemBag?.timeActiveUntil && this.time.now < this.itemBag.timeActiveUntil) { this.cancelTimeStopEarly(); } });
   this._refreshItemBagUI();
   // Apply persisted item bag states
   try { if (this.itemBag?.invis) this.player.setAlpha(0.55); } catch(e) {}
-  if ((this.itemBag?.timeActiveUntil||0) > this.time.now) { this._timeStopped = true; this.applyTimeStopFreeze(true); }
   }
 
   update() {
   this.updateDog();
   if (!this.started || this.isPaused) { this.hookGfx?.clear(); this.vineGfx?.clear(); this.cannonAimGfx?.clear(); this.fishingGfx?.clear(); return; }
-    // Time Stop upkeep
-    if (this._timeStopped) {
-      if (this.time.now >= (this.itemBag.timeActiveUntil||0)) {
-        this.applyTimeStopFreeze(false);
-        this._timeStopped = false;
-        this._refreshItemBagUI?.();
-      } else {
-        this.bullets?.children?.iterate?.((b)=>{ if(!b||!b.body) return; b.body.velocity.x=0; b.body.velocity.y=0; b.body.allowGravity=false; });
-      }
-    }
     // Fishing line draw + nibble logic
     this.fishingGfx?.clear();
     if (this.fishing?.active && this.fishing.bobber && this.fishing.bobber.active) {
@@ -2143,6 +2269,8 @@ class GameScene extends Phaser.Scene {
       if (this.tank.prompt) this.tank.prompt.setPosition(this.tank.sprite.x, this.tank.sprite.y - 40).setVisible(this.nearTank && !this.tank.mounted);
     }
 
+    const ridingSpecialAnimal = this.updateSpecialAnimals();
+
     // Car turrets: auto-target mobs with line-of-sight (no shooting through walls)
     // If mounted, attach car to player for clear feedback
     if (this.car?.mounted && this.car.sprite) {
@@ -2401,12 +2529,17 @@ class GameScene extends Phaser.Scene {
   else if (ridingMoped) speed = baseSpeed * (this.moped.speedMult * (this._mopedBoost?1.25:1));
   else if (speedBoostNow) speed = baseSpeed * 1.5;
 
-  if (left) { this.player.setVelocityX(-speed); this.player.setFlipX(true); }
+  if (ridingSpecialAnimal) {
+    const animal = this.specialAnimals[this.mountedSpecialAnimal];
+    if (animal?.sprite?.body) this.player.setVelocity(animal.sprite.body.velocity.x, animal.sprite.body.velocity.y);
+  } else if (left) { this.player.setVelocityX(-speed); this.player.setFlipX(true); }
   else if (right) { this.player.setVelocityX(speed); this.player.setFlipX(false); }
     else { this.player.setVelocityX(0); }
 
     const canFlyNow = this.state.canFly || this.tools.equipped === 'wizard';
-    if (canFlyNow) {
+    if (ridingSpecialAnimal) {
+      this.player.setGravityY(0);
+    } else if (canFlyNow) {
   if (jump) this.player.setVelocityY(-280);
     } else if (jump && onGround) {
       const jv = this.state.bounceShoes ? -560 : -440;
@@ -2436,7 +2569,9 @@ class GameScene extends Phaser.Scene {
   if (Phaser.Input.Keyboard.JustDown(this.keys.E) && this.nearMerchant) this.openMerchant();
 
     // Handle gravity
-    if (this.inWater) {
+    if (ridingSpecialAnimal) {
+      this.player.setGravityY(0);
+    } else if (this.inWater) {
       this.player.setGravityY(100);
     } else {
       // Base gravity; glider can override below
@@ -3143,40 +3278,6 @@ class GameScene extends Phaser.Scene {
   }
 
   // --- Item bag abilities ---
-  tryTimeStop(){
-    const now = this.time.now;
-    if ((this.itemBag.timeCdUntil||0) > now) { this.showToast?.('Ajan pysäytin latautuu...'); return false; }
-    const dur = 3000; const cd = 15000;
-    this.itemBag.timeActiveUntil = now + dur;
-    this.itemBag.timeCdUntil = now + cd;
-    this._timeStopped = true;
-    this._refreshItemBagUI?.();
-    this.applyTimeStopFreeze(true);
-    this.showToast?.('Aika pysähtyi! (Å peruu)');
-    this.saveState();
-    this.time.delayedCall(dur+50, ()=>{ if (this._timeStopped) { this.applyTimeStopFreeze(false); this._timeStopped=false; this._refreshItemBagUI?.(); } });
-    return true;
-  }
-  cancelTimeStopEarly(){
-    if (!this._timeStopped) return;
-    this.applyTimeStopFreeze(false);
-    this._timeStopped = false;
-    this.itemBag.timeActiveUntil = 0;
-    this._refreshItemBagUI?.();
-  }
-  applyTimeStopFreeze(on){
-    this._timeStopped = !!on;
-    const zero = (e)=>{ try{ e.body && (e.body.velocity.x=0, e.body.velocity.y=0); }catch(_){} };
-    if (on) {
-      this.slimes?.children?.iterate?.(zero);
-      this.birds?.children?.iterate?.(zero);
-      this.zombies?.children?.iterate?.(zero);
-      this.oppos?.children?.iterate?.(zero);
-      this.enemySoldiers?.children?.iterate?.(zero);
-      this.bosses?.children?.iterate?.(zero);
-      this.bullets?.children?.iterate?.((b)=>{ if(!b||!b.body) return; b.body.velocity.x=0; b.body.velocity.y=0; b.body.allowGravity=false; });
-    }
-  }
   toggleInvisibility(){
     this.itemBag.invis = !this.itemBag.invis;
     // Visual alpha
@@ -3348,6 +3449,173 @@ class GameScene extends Phaser.Scene {
   ninjaStrikeOff(){
     if (this.col_player_platforms) this.col_player_platforms.active = true;
     this.player.body.checkCollision.none = false;
+  }
+
+  unlockSpecialBattleAnimal(key) {
+    const spec = SPECIAL_MOUNT_SPECS[key];
+    if (!spec) return;
+    if (!this.battle.collection[spec.battleId]) {
+      this.battle.collection[spec.battleId] = 1;
+      this.addBattleAnimalToTeam(spec.battleId);
+      this.updateBattleUI?.();
+      this.saveState();
+    }
+  }
+
+  summonSpecialAnimal(key) {
+    const spec = SPECIAL_MOUNT_SPECS[key];
+    if (!spec || !this.player) return;
+    const x = this.player.x + (key === 'dragon' ? 130 : 90);
+    const y = spec.ground ? this.player.y + 12 : this.player.y - (key === 'dragon' ? 80 : 60);
+    let animal = this.specialAnimals[key];
+    if (!animal?.sprite) {
+      const sprite = this.physics.add.sprite(x, y, spec.textures[0]).setDepth(5);
+      sprite.body.setAllowGravity(!!spec.ground);
+      sprite.setCollideWorldBounds(false);
+      sprite.body.setSize(spec.body.width, spec.body.height).setOffset(spec.body.offsetX, spec.body.offsetY);
+      sprite.setData('specialAnimalKey', key);
+      sprite.setInteractive({ useHandCursor: true });
+      sprite.on('pointerdown', () => {
+        if (!this.started || this.isPaused) return;
+        this.toggleSpecialAnimalMount(key);
+      });
+      const prompt = this.add.text(0, 0, spec.prompt, {
+        fontFamily: 'monospace',
+        fontSize: '13px',
+        color: '#fff',
+        backgroundColor: '#0008'
+      }).setPadding(4, 2).setDepth(1000).setVisible(false);
+      const collider = this.physics.add.collider(sprite, this.platforms);
+      animal = { ...spec, sprite, prompt, collider, mounted: false, target: { x, y }, flapFrame: 0, nextFlapAt: 0 };
+      this.specialAnimals[key] = animal;
+    } else {
+      animal.sprite.setActive(true).setVisible(true).setPosition(x, y).setVelocity(0, 0);
+      animal.sprite.setTexture(spec.textures[0]);
+      animal.sprite.body.setAllowGravity(!!spec.ground);
+      animal.sprite.body.setSize(spec.body.width, spec.body.height).setOffset(spec.body.offsetX, spec.body.offsetY);
+      if (animal.collider) animal.collider.active = true;
+      animal.target = { x, y };
+    }
+    this.unlockSpecialBattleAnimal(key);
+    this.showToast(`${spec.name} kutsuttu`);
+  }
+
+  setSpecialAnimalTargetFromPointer(pointer) {
+    const animal = this.specialAnimals[this.mountedSpecialAnimal];
+    if (!animal) return;
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    animal.target = { x: wp.x, y: wp.y };
+    if (animal.ground && wp.y < animal.sprite.y - 20) animal.jumpQueued = true;
+  }
+
+  toggleSpecialAnimalMount(key) {
+    const animal = this.specialAnimals[key];
+    if (!animal?.sprite) return;
+    if (this.mountedSpecialAnimal === key) {
+      animal.mounted = false;
+      this.mountedSpecialAnimal = null;
+      animal.sprite.setVelocity(0, 0);
+      animal.target = { x: animal.sprite.x, y: animal.sprite.y };
+      animal.sprite.setTexture(animal.textures[0]);
+      if (this.col_player_platforms) this.col_player_platforms.active = true;
+      this.player.body.checkCollision.none = false;
+      this.player.body.setAllowGravity(true);
+      this.player.setGravityY(900);
+      this.player.setPosition(animal.sprite.x, animal.sprite.y + 20);
+      this.showToast(`${animal.name}: poistuit kyydistä`);
+      return;
+    }
+
+    Object.keys(this.specialAnimals).forEach((entryKey) => {
+      if (this.specialAnimals[entryKey]) this.specialAnimals[entryKey].mounted = false;
+    });
+    if (this.moped?.mounted) this.toggleMoped();
+    if (this.car?.mounted) this.toggleCar();
+    if (this.tank?.mounted) this.toggleTank();
+    if (this.plane?.mounted) this.togglePlane();
+
+    animal.mounted = true;
+    this.mountedSpecialAnimal = key;
+    animal.target = { x: animal.sprite.x, y: animal.sprite.y };
+    if (this.col_player_platforms) this.col_player_platforms.active = false;
+    this.player.body.checkCollision.none = true;
+    this.player.body.setAllowGravity(false);
+    this.player.setGravityY(0);
+    this.player.setVelocity(0, 0);
+    this.player.setDepth(6);
+    animal.sprite.setDepth(5);
+    animal.prompt?.setVisible(false);
+    this.showToast(`${animal.name}: kyytiin`);
+  }
+
+  updateSpecialAnimals() {
+    this.nearSpecialAnimal = null;
+    let riding = false;
+    Object.entries(this.specialAnimals).forEach(([key, animal]) => {
+      if (!animal?.sprite?.active) return;
+      if (animal.mounted) {
+        riding = true;
+        if (this.input.activePointer?.isDown) this.setSpecialAnimalTargetFromPointer(this.input.activePointer);
+        const target = animal.target || { x: animal.sprite.x, y: animal.sprite.y };
+        const dx = target.x - animal.sprite.x;
+        const dy = target.y - animal.sprite.y;
+        const dist = Math.hypot(dx, dy);
+        if (animal.ground) {
+          const absDx = Math.abs(dx);
+          const onGround = !!(animal.sprite.body?.blocked?.down || animal.sprite.body?.touching?.down);
+          if (absDx > animal.arrive) {
+            const dir = Math.sign(dx) || 1;
+            animal.sprite.setVelocityX(dir * animal.speed);
+            animal.sprite.setFlipX(dir < 0);
+            if (onGround && (animal.jumpQueued || dy < -20 || animal.sprite.body?.blocked?.left || animal.sprite.body?.blocked?.right)) {
+              animal.sprite.setVelocityY(animal.jumpVelocity);
+              animal.jumpQueued = false;
+            }
+            if (this.time.now >= (animal.nextFlapAt || 0)) {
+              animal.flapFrame = 1 - (animal.flapFrame || 0);
+              animal.nextFlapAt = this.time.now + 150;
+              animal.sprite.setTexture(animal.textures[animal.flapFrame]);
+            }
+          } else {
+            animal.sprite.setVelocityX(0);
+            if (onGround) animal.sprite.setTexture(animal.textures[0]);
+          }
+          this.player.setVelocity(animal.sprite.body.velocity.x, animal.sprite.body.velocity.y);
+        } else if (dist > animal.arrive) {
+          const ease = Math.min(animal.speed, dist * 2.6);
+          const vx = (dx / dist) * ease;
+          const vy = (dy / dist) * ease;
+          animal.sprite.setVelocity(vx, vy);
+          this.player.setVelocity(vx, vy);
+          animal.sprite.setFlipX(dx < 0);
+          if (this.time.now >= (animal.nextFlapAt || 0)) {
+            animal.flapFrame = 1 - (animal.flapFrame || 0);
+            animal.nextFlapAt = this.time.now + (key === 'dragon' ? 380 : 220);
+            animal.sprite.setTexture(animal.textures[animal.flapFrame]);
+          }
+        } else {
+          animal.sprite.setVelocity(0, 0);
+          this.player.setVelocity(0, 0);
+          animal.sprite.setTexture(animal.textures[0]);
+        }
+        if (animal.sprite.body?.blocked?.none === false || animal.sprite.body?.touching?.none === false) {
+          animal.target = { x: animal.sprite.x, y: animal.sprite.y };
+        }
+        this.player.setPosition(animal.sprite.x, animal.sprite.y + animal.riderOffsetY);
+        this.player.setGravityY(0);
+        if (this.col_player_platforms) this.col_player_platforms.active = false;
+        this.player.body.checkCollision.none = true;
+        animal.prompt?.setVisible(false);
+      } else {
+        const dx = this.player.x - animal.sprite.x;
+        const dy = this.player.y - animal.sprite.y;
+        const near = Math.abs(dx) < 100 && Math.abs(dy) < 90;
+        if (near && !this.nearSpecialAnimal) this.nearSpecialAnimal = key;
+        animal.prompt?.setPosition(animal.sprite.x, animal.sprite.y - 42).setVisible(near);
+        animal.sprite.setVelocity(0, 0);
+      }
+    });
+    return riding;
   }
 
   // Car helpers
@@ -7732,8 +8000,9 @@ class GameScene extends Phaser.Scene {
     this.itemBag.glider = !!d.itemBag.glider;
     this.itemBag.jetpack = !!d.itemBag.jetpack;
     this.itemBag.invis = !!d.itemBag.invis;
-    this.itemBag.timeCdUntil = d.itemBag.timeCdUntil||0;
-    this.itemBag.timeActiveUntil = d.itemBag.timeActiveUntil||0;
+    delete this.itemBag.timeCdUntil;
+    delete this.itemBag.timeActiveUntil;
+    this._timeStopped = false;
     this.itemBag.speedUntil = d.itemBag.speedUntil||0;
     this.itemBag.shieldUntil = d.itemBag.shieldUntil||0;
     this.itemBag.decoyUntil = d.itemBag.decoyUntil||0;
@@ -8542,6 +8811,12 @@ window.addEventListener('load', () => {
     menu?.classList.toggle('hidden');
     window.gameScene?._refreshMerchantAnimalShop?.();
   });
+  document.getElementById('animalsBtn')?.addEventListener('click', () => {
+    document.getElementById('animalPanel')?.classList.toggle('hidden');
+  });
+  document.getElementById('callHawk')?.addEventListener('click', () => window.gameScene?.summonSpecialAnimal('hawk'));
+  document.getElementById('callDragon')?.addEventListener('click', () => window.gameScene?.summonSpecialAnimal('dragon'));
+  document.getElementById('callDirewolf')?.addEventListener('click', () => window.gameScene?.summonSpecialAnimal('direwolf'));
 
   // Backpack UI buttons
   document.getElementById('backpackBtn')?.addEventListener('click', ()=> window.gameScene?.toggleBackpack());
