@@ -50,6 +50,7 @@ const BALLOON_SOLDIER_ARCHETYPES = [
   { id: 'bomber', name: 'Pomppupallo', hp: 24, attack: 6 },
   { id: 'captain', name: 'Komentajapallo', hp: 30, attack: 8 }
 ];
+const BATTLE_TEAM_LIMIT = 80;
 
 function toCssHex(color) {
   return `#${color.toString(16).padStart(6, '0')}`;
@@ -384,14 +385,34 @@ class GameScene extends Phaser.Scene {
     return Math.max(0, this.battle.collection[id] || 0);
   }
 
-  getBattleAnimalCombatStats(id) {
+  getBattleTeamCopies(id) {
+    return this.battle.team.filter((entry) => entry === id).length;
+  }
+
+  addBattleAnimalToTeam(id) {
+    if (!BATTLE_ANIMAL_MAP[id]) return false;
+    if (this.battle.team.length >= BATTLE_TEAM_LIMIT) {
+      this.showToast?.(`Joukkueessa voi olla enintään ${BATTLE_TEAM_LIMIT} eläintä`);
+      return false;
+    }
+    if (this.getBattleTeamCopies(id) >= this.getBattleAnimalCopies(id)) {
+      this.showToast?.('Kaikki omistetut kappaleet ovat jo joukkueessa');
+      return false;
+    }
+    this.battle.team.push(id);
+    this.battle.selectedAnimalId = this.battle.selectedAnimalId || id;
+    return true;
+  }
+
+  getBattleAnimalCombatStats(id, copyNumber = 1) {
     const spec = BATTLE_ANIMAL_MAP[id];
     if (!spec) return null;
     const copies = this.getBattleAnimalCopies(id);
     const bonus = Math.max(0, copies - 1);
     return {
-      id,
-      name: spec.name,
+      id: `${id}-${copyNumber}`,
+      sourceId: id,
+      name: copies > 1 ? `${spec.name} ${copyNumber}` : spec.name,
       ability: spec.ability,
       form: spec.form,
       primary: toCssHex(spec.colors.primary),
@@ -422,7 +443,7 @@ class GameScene extends Phaser.Scene {
     if (!spec) return;
     animal.setData('battleCollected', true);
     this.battle.collection[id] = (this.battle.collection[id] || 0) + 1;
-    if (!this.battle.team.includes(id) && this.battle.team.length < 3) this.battle.team.push(id);
+    this.addBattleAnimalToTeam(id);
     if (this.battle.collection[id] === 1) this.showToast(`Taistelueläin saatu: ${spec.name}`);
     else this.showToast(`${spec.name} liittyi joukkoon (+1)`);
     this.updateBattleUI();
@@ -430,11 +451,39 @@ class GameScene extends Phaser.Scene {
     animal.destroy();
   }
 
+  buyBattleAnimal(id, cost = 5) {
+    const spec = BATTLE_ANIMAL_MAP[id];
+    if (!spec) return false;
+    if (this.state.coins < cost) {
+      this.showToast?.(`Tarvitset ${cost} kolikkoa`);
+      return false;
+    }
+    this.state.coins -= cost;
+    this.battle.collection[id] = (this.battle.collection[id] || 0) + 1;
+    this.addBattleAnimalToTeam(id);
+    this.showToast?.(`Ostit eläimen: ${spec.name}`);
+    this.updateUI();
+    this.updateBattleUI?.();
+    this.saveState();
+    this._refreshMerchantAnimalShop?.();
+    return true;
+  }
+
   toggleBattleTeamAnimal(id) {
     if (!this.battle.collection[id]) return;
-    if (this.battle.team.includes(id)) this.battle.team = this.battle.team.filter((entry) => entry !== id);
-    else if (this.battle.team.length < 3) this.battle.team.push(id);
-    else this.showToast('Voit valita enintään kolme taistelueläintä');
+    const inTeam = this.getBattleTeamCopies(id);
+    if (inTeam < this.getBattleAnimalCopies(id)) {
+      if (this.battle.team.length >= BATTLE_TEAM_LIMIT) {
+        this.showToast(`Voit valita enintään ${BATTLE_TEAM_LIMIT} taistelueläintä`);
+        return;
+      }
+      this.addBattleAnimalToTeam(id);
+    } else if (inTeam > 0) {
+      const removeIndex = this.battle.team.lastIndexOf(id);
+      if (removeIndex >= 0) this.battle.team.splice(removeIndex, 1);
+    } else {
+      this.showToast(`Voit valita enintään ${BATTLE_TEAM_LIMIT} taistelueläintä`);
+    }
     if (!this.battle.inFight) {
       this.battle.allies = [];
       this.battle.enemies = [];
@@ -1729,10 +1778,16 @@ class GameScene extends Phaser.Scene {
 
     // Start/pause UI buttons
     document.getElementById('btnStart')?.addEventListener('click', ()=> this.startGame());
-    document.getElementById('btnStartSettings')?.addEventListener('click', ()=> document.getElementById('settingsMenu')?.classList.toggle('hidden'));
+    document.getElementById('btnStartSettings')?.addEventListener('click', ()=>{
+      document.getElementById('settingsMenu')?.classList.toggle('hidden');
+      this._refreshMerchantAnimalShop();
+    });
     document.getElementById('btnResume')?.addEventListener('click', ()=> this.resumeGame());
     document.getElementById('btnRestart')?.addEventListener('click', ()=> this.restartGame());
-    document.getElementById('btnPauseSettings')?.addEventListener('click', ()=> document.getElementById('settingsMenu')?.classList.toggle('hidden'));
+    document.getElementById('btnPauseSettings')?.addEventListener('click', ()=>{
+      document.getElementById('settingsMenu')?.classList.toggle('hidden');
+      this._refreshMerchantAnimalShop();
+    });
   // Minigames from pause
   document.getElementById('btnMiniMurder')?.addEventListener('click', ()=>{ try{ window.Sfx?.resume(); }catch(e){} this.startMinigame('murder'); });
   document.getElementById('btnMiniParkour')?.addEventListener('click', ()=>{ try{ window.Sfx?.resume(); }catch(e){} this.startMinigame('parkour'); });
@@ -5967,15 +6022,17 @@ class GameScene extends Phaser.Scene {
     if (!this.battle.team.length) {
       const empty = document.createElement('span');
       empty.className = 'battle-team-chip empty';
-      empty.textContent = 'Valitse 1-3 taistelueläintä';
+      empty.textContent = `Valitse 1-${BATTLE_TEAM_LIMIT} taistelueläintä`;
       chips.appendChild(empty);
     } else {
+      const seen = {};
       this.battle.team.forEach((id)=>{
         const spec = BATTLE_ANIMAL_MAP[id];
         if (!spec) return;
+        seen[id] = (seen[id] || 0) + 1;
         const chip = document.createElement('button');
         chip.className = `battle-team-chip${this.battle.selectedAnimalId === id ? ' active' : ''}`;
-        chip.textContent = spec.name;
+        chip.textContent = this.getBattleTeamCopies(id) > 1 ? `${spec.name} ${seen[id]}` : spec.name;
         chip.addEventListener('click', ()=>{
           this.battle.selectedAnimalId = id;
           this.renderBattleCollection();
@@ -5988,8 +6045,9 @@ class GameScene extends Phaser.Scene {
     grid.innerHTML = '';
     BATTLE_ANIMAL_SPECS.forEach((spec)=>{
       const count = this.getBattleAnimalCopies(spec.id);
+      const inTeam = this.getBattleTeamCopies(spec.id);
       const card = document.createElement('button');
-      const selected = this.battle.team.includes(spec.id);
+      const selected = inTeam > 0;
       card.className = `battle-collection-card${count ? '' : ' locked'}${selected ? ' selected' : ''}`;
       card.disabled = !count;
       const avatar = document.createElement('div');
@@ -6004,7 +6062,7 @@ class GameScene extends Phaser.Scene {
       meta.textContent = count ? `HP ${spec.hp} | ATK ${spec.attack}` : 'Kerää maailmasta';
       const copy = document.createElement('div');
       copy.className = 'battle-card-count';
-      copy.textContent = count ? `Kappaleita ${count}` : 'Ei vielä joukkueessa';
+      copy.textContent = count ? `Omistat ${count} | Joukkueessa ${inTeam}` : 'Ei vielä joukkueessa';
       card.appendChild(avatar);
       card.appendChild(title);
       card.appendChild(meta);
@@ -6033,7 +6091,11 @@ class GameScene extends Phaser.Scene {
 
   startBalloonBattle(){
     if (!this.battle.team.length) { this.addBattleLog('Valitse ensin ainakin yksi taistelueläin.'); this.renderBattleArena(); return; }
-    this.battle.allies = this.battle.team.map((id)=> this.getBattleAnimalCombatStats(id)).filter(Boolean);
+    const seen = {};
+    this.battle.allies = this.battle.team.slice(0, BATTLE_TEAM_LIMIT).map((id)=>{
+      seen[id] = (seen[id] || 0) + 1;
+      return this.getBattleAnimalCombatStats(id, seen[id]);
+    }).filter(Boolean);
     if (!this.battle.allies.length) { this.addBattleLog('Sinulla ei ole vielä taistelukelpoisia eläimiä.'); this.renderBattleArena(); return; }
     const enemyCount = Math.min(4, 2 + Math.floor((this.battle.wave - 1) / 2));
     this.battle.enemies = Array.from({ length: enemyCount }, (_, index)=> this.createBalloonEnemy(index));
@@ -6316,6 +6378,19 @@ class GameScene extends Phaser.Scene {
     if (this.battleEls.attack) this.battleEls.attack.disabled = !this.battle.inFight;
     if (this.battleEls.skill) this.battleEls.skill.disabled = !this.battle.inFight;
     if (this.battleEls.heal) this.battleEls.heal.disabled = !this.battle.inFight;
+  }
+
+  showToast(msg){
+    if (!this.add || !this.cameras?.main) return;
+    const x = this.cameras.main.scrollX + 10;
+    const y = this.cameras.main.scrollY + 64;
+    const t = this.add.text(x, y, msg, {
+      fontFamily: 'monospace',
+      fontSize: '14px',
+      color: '#fff',
+      backgroundColor: '#0009'
+    }).setDepth(1000);
+    this.time.delayedCall(1200, ()=> t.destroy());
   }
 
   updateWeaponSprite(){
@@ -7422,32 +7497,44 @@ class GameScene extends Phaser.Scene {
   }
 
   _refreshMerchantAnimalShop(){
-    const container = document.getElementById('merchantAnimalShop');
-    if (!container) return;
+    const containers = [
+      document.getElementById('merchantAnimalShop'),
+      document.getElementById('settingsAnimalShop')
+    ].filter(Boolean);
+    if (!containers.length) return;
     // Valitaan 3 eläintä deterministisesti päivän ja peliajan mukaan
     const allIds = BATTLE_ANIMAL_SPECS.map(s=>s.id);
     const seed = (Math.floor(Date.now()/86400000) + (this.battle.wins||0)) % allIds.length;
     const picks = [];
     for (let i=0;i<3;i++) picks.push(allIds[(seed + i*7) % allIds.length]);
-    container.innerHTML = '';
-    picks.forEach((id)=>{
-      const spec = BATTLE_ANIMAL_MAP[id];
-      if (!spec) return;
-      const owned = this.battle.collection[id] || 0;
-      const div = document.createElement('div');
-      div.style.cssText = 'display:flex;align-items:center;gap:8px;margin:4px 0;';
-      div.innerHTML = `<span style="font-size:13px;flex:1">${spec.name} <small style="color:#888">(omistettu: ${owned})</small></span><button data-animalid="${id}" style="background:#5c6bc0;color:#fff;border:none;padding:4px 10px;border-radius:5px;cursor:pointer">Osta 5🪙</button>`;
-      div.querySelector('button').addEventListener('click', ()=>{
-        const s = window.gameScene; if (!s) return;
-        if (s.state.coins < 5) { s.showToast?.('Ei tarpeeksi kolikoita!'); return; }
-        s.state.coins -= 5;
-        s.battle.collection[id] = (s.battle.collection[id]||0) + 1;
-        if (!s.battle.team.includes(id) && s.battle.team.length < 3) s.battle.team.push(id);
-        s.showToast?.(`Ostit: ${spec.name}!`);
-        s.updateUI(); s.updateBattleUI?.(); s.saveState();
-        s._refreshMerchantAnimalShop();
+
+    containers.forEach((container)=>{
+      container.innerHTML = '';
+      picks.forEach((id)=>{
+        const spec = BATTLE_ANIMAL_MAP[id];
+        if (!spec) return;
+        const owned = this.battle.collection[id] || 0;
+        const row = document.createElement('div');
+        row.className = 'merchant-animal-row';
+
+        const name = document.createElement('span');
+        name.className = 'merchant-animal-name';
+        name.textContent = spec.name;
+
+        const ownedText = document.createElement('small');
+        ownedText.textContent = `omistettu: ${owned}`;
+        name.appendChild(ownedText);
+
+        const buyButton = document.createElement('button');
+        buyButton.type = 'button';
+        buyButton.dataset.animalid = id;
+        buyButton.textContent = 'Osta 5 kolikkoa';
+        buyButton.addEventListener('click', () => this.buyBattleAnimal(id, 5));
+
+        row.appendChild(name);
+        row.appendChild(buyButton);
+        container.appendChild(row);
       });
-      container.appendChild(div);
     });
   }
   closeMerchant(){ document.getElementById('merchant')?.classList.add('hidden'); }
@@ -7658,7 +7745,19 @@ class GameScene extends Phaser.Scene {
       if (validIds.has(id) && typeof count === 'number' && count > 0) nextCollection[id] = Math.floor(count);
     });
     this.battle.collection = nextCollection;
-    this.battle.team = Array.isArray(d.battle.team) ? d.battle.team.filter((id, index, arr)=> validIds.has(id) && arr.indexOf(id) === index).slice(0, 3) : [];
+    if (Array.isArray(d.battle.team)) {
+      const used = {};
+      this.battle.team = [];
+      d.battle.team.forEach((id)=>{
+        if (!validIds.has(id) || this.battle.team.length >= BATTLE_TEAM_LIMIT) return;
+        used[id] = used[id] || 0;
+        if (used[id] >= (nextCollection[id] || 0)) return;
+        used[id] += 1;
+        this.battle.team.push(id);
+      });
+    } else {
+      this.battle.team = [];
+    }
     this.battle.wins = Math.max(0, d.battle.wins || 0);
     this.battle.losses = Math.max(0, d.battle.losses || 0);
     this.battle.wave = Math.max(1, d.battle.wave || 1);
@@ -8439,7 +8538,10 @@ window.addEventListener('load', () => {
   // Toggle settings popup (existing UI)
   const btn = document.getElementById('settingsBtn');
   const menu = document.getElementById('settingsMenu');
-  btn?.addEventListener('click', () => menu?.classList.toggle('hidden'));
+  btn?.addEventListener('click', () => {
+    menu?.classList.toggle('hidden');
+    window.gameScene?._refreshMerchantAnimalShop?.();
+  });
 
   // Backpack UI buttons
   document.getElementById('backpackBtn')?.addEventListener('click', ()=> window.gameScene?.toggleBackpack());

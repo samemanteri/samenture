@@ -41,16 +41,16 @@
 
 <div id="battleRadar" aria-label="Ilmapallosotilaiden haaste">
   <button id="battleRadarBtn" title="Avaa taistelulava">
-    <div class="battle-radar-art" aria-hidden="true">
+    <span class="battle-radar-art" aria-hidden="true">
       <span class="balloon-soldier red"></span>
       <span class="balloon-soldier amber"></span>
       <span class="balloon-soldier steel"></span>
-    </div>
-    <div class="battle-radar-copy">
+    </span>
+    <span class="battle-radar-copy">
       <strong>Ilmapallosotilaat haluavat taistella</strong>
       <span id="battleRadarStatus">Aalto 1 odottaa</span>
       <span id="battleRadarAnimals">Taistelueläimet 0/30</span>
-    </div>
+    </span>
   </button>
 </div>
 
@@ -142,6 +142,9 @@
   <button id="buyRifleStone2">Osta kivääri kivillä</button>
   <div style="margin-top:6px">Palkkaa sotilas rakettirepulla — 30 kiveä</div>
   <button id="hireJetSoldier2">Palkkaa sotilas</button>
+  <hr>
+  <div><strong>Taistelueläimet</strong> — 5 kolikkoa / eläin</div>
+  <div id="settingsAnimalShop" class="settings-animal-shop"></div>
   </div>
 
   <hr>
@@ -183,7 +186,8 @@
   <div class="merchant-box">
     <h3>Kauppias</h3>
     <div>30 puublokkia &mdash; 5 kolikkoa</div>
-    <iv id="buyWood">Osta</iv>Työkalut</iv>
+    <button id="buyWood">Osta</button>
+    <div>Työkalut</div>
     <div>Puuhakku &mdash; 2 kolikkoa</div>
     <button id="buyPickWood">Osta puuhakku</button>
     <div>Kivihakku &mdash; 4 kolikkoa</div>
@@ -283,7 +287,7 @@
     <div class="battle-head">
       <div>
         <h3>Taistelulava</h3>
-        <p>Kerää 30 erilaista taistelueläintä maailmasta ja lähetä enintään kolme niistä ilmapallosotilaita vastaan.</p>
+        <p>Kerää taistelueläimiä maailmasta ja lähetä jopa 80 niistä ilmapallosotilaita vastaan.</p>
       </div>
       <button id="battleClose">Sulje</button>
     </div>

@@ -147,6 +147,7 @@ body {
 }
 
 .battle-radar-art {
+  display: block;
   position: relative;
   height: 70px;
   border-radius: 16px;
@@ -224,6 +225,8 @@ body {
   border-radius: 5px;
   border: 1px solid #555;
   z-index: 100;
+  max-height: calc(100vh - 70px);
+  overflow-y: auto;
 }
 
 .merchant-inline button {
@@ -286,6 +289,7 @@ body {
 
 .merchant-box {
   background: rgba(255,255,255,0.95);
+  color: #222;
   padding: 12px;
   border-radius: 8px;
   box-shadow: 0 6px 18px rgba(0,0,0,0.25);
@@ -312,6 +316,34 @@ body {
 
 .merchant-box button:hover {
   background: #7986cb;
+}
+
+.merchant-animal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.merchant-animal-name {
+  flex: 1;
+  font-size: 13px;
+  text-align: left;
+}
+
+.merchant-animal-name small {
+  display: block;
+  color: #666;
+}
+
+.settings-animal-shop .merchant-animal-name small {
+  color: #b9c1d9;
+}
+
+.merchant-animal-row button {
+  margin: 0;
+  padding: 5px 9px;
+  white-space: nowrap;
 }
 
 .hidden {
@@ -469,6 +501,18 @@ body {
   flex-wrap: wrap;
 }
 
+.battle-team-chips {
+  max-height: 120px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.battle-card-row {
+  max-height: 36vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+
 .battle-team-chip {
   border: none;
   border-radius: 999px;
@@ -523,7 +567,7 @@ body {
 }
 
 .battle-card {
-  width: min(170px, 100%);
+  width: min(150px, 100%);
   padding: 12px;
 }
 
