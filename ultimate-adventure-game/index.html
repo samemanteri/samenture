@@ -19,11 +19,61 @@
   </div>
 </div>
 <div id="ui">
-  <div id="health">Elämät: 4</div>
+  <div id="health">Elämät: 9/9</div>
   <div id="coins">Kolikot: 0</div>
+  <div id="multiplayerStatus">Moninpeli: ei yhdistetty</div>
+  <div id="builderStatus" class="hidden">Nikkarointitila: ON · LENTO + RAKENNUS ∞ · EI OSUMIA</div>
+  <div id="oxygen" class="hidden">Happi: 100%</div>
   <div id="settingsBtn">⚙️</div>
   <div id="animalsBtn" title="Erikoiseläimet">Eläimet</div>
+  <div id="megaAnimalsBtn" title="Megaeläimet">Mega eläimet</div>
+  <div id="superAnimalsBtn" title="Supereläimet">Super eläimet</div>
   <div id="backpackBtn" title="Reppu (E)">🎒</div>
+</div>
+
+<div id="adventureHud" aria-label="Seikkailun eteneminen">
+  <div id="levelHud">Taso 1 · XP 0/100</div>
+  <button id="questBtn" type="button">📜 Tehtävät</button>
+  <button id="mapBtn" type="button">🗺️ Kartta</button>
+  <button id="dailyRewardBtn" type="button">🎁 Päiväpalkinto</button>
+  <button id="commandBtn" type="button">⌨️ Komennot</button>
+  <button id="aiChatBtn" type="button">🤖 AI-apuri</button>
+</div>
+
+<div id="questPanel" class="adventure-popover hidden" aria-label="Tehtävät">
+  <h3>Tehtävät</h3>
+  <div id="questList"></div>
+</div>
+
+<div id="mapPanel" class="adventure-popover hidden" aria-label="Seikkailukartta">
+  <h3>Seikkailukartta</h3>
+  <div id="mapStatus">Sijainti: aloitus</div>
+  <div id="mapLandmarks"></div>
+</div>
+
+<div id="minimapPanel" aria-label="Minikartta">
+  <strong>MINIKARTTA</strong>
+  <div id="minimapStatus">Ladataan sijaintia…</div>
+</div>
+
+<div id="commandPanel" class="adventure-popover hidden" aria-label="Komentokonsoli">
+  <h3>⚙️ Komentokonsoli</h3>
+  <div id="commandOutput" class="command-output" aria-live="polite"></div>
+  <div class="command-input-row">
+    <input id="commandInput" type="text" autocomplete="off" placeholder="Kirjoita /help">
+    <button id="commandSend" type="button">Suorita</button>
+  </div>
+  <small>/help näyttää kaikki komennot. Konsoli avautuu myös /-näppäimellä.</small>
+</div>
+
+<div id="aiChatPanel" class="adventure-popover hidden" aria-label="AI-apuri">
+  <h3>🤖 AI-apuri</h3>
+  <div id="aiChatLog" class="ai-chat-log" aria-live="polite"></div>
+  <button id="aiGameInfoBtn" type="button">ℹ️ Pelin tiedot</button>
+  <div class="command-input-row">
+    <input id="aiChatInput" type="text" autocomplete="off" placeholder="Kysy pelistä…">
+    <button id="aiChatSend" type="button">Lähetä</button>
+  </div>
 </div>
 
 <div id="animalPanel" class="hidden" aria-label="Erikoiseläimet">
@@ -31,7 +81,26 @@
   <button id="callHawk" type="button">Kutsu haukka</button>
   <button id="callDragon" type="button">Kutsu lohikäärme</button>
   <button id="callDirewolf" type="button">Kutsu iso susi</button>
-  <small>F/↓ nouse kyytiin. Vedä hiirellä kohde. Iso susi hyppää korkealle.</small>
+  <button id="callWaterSerpent" type="button">Kutsu vesikäärme</button>
+  <small>F/↓ nouse kyytiin. Vedä hiirellä kohde. Vesikäärme lentää ja ui nopeasti.</small>
+</div>
+
+<div id="megaAnimalPanel" class="hidden" aria-label="Megaeläimet">
+  <h3>Megaeläimet</h3>
+  <button id="callStormEagle" type="button">Myrskykotka</button>
+  <button id="callFireLion" type="button">Tulileijona</button>
+  <button id="callIceBear" type="button">Jääkarhu</button>
+  <button id="callShadowPanther" type="button">Varjopantteri</button>
+  <button id="callStoneRhino" type="button">Kivisarvikuono</button>
+  <button id="callSkyWhale" type="button">Taivasvalas</button>
+  <button id="callDeathBird" type="button">Kuoleman lintu</button>
+  <small>Vedä hiirellä tai rullaa hiirtä ohjataksesi. Jokaisella on oma voima.</small>
+</div>
+
+<div id="superAnimalPanel" class="hidden" aria-label="Supereläimet">
+  <h3>Supereläimet</h3>
+  <div id="superAnimalList"></div>
+  <small>Sika nopea lento. Kyydissä et ota vahinkoa.</small>
 </div>
 
 <!-- Item bag (top-right) -->
@@ -64,12 +133,50 @@
 
 <div id="settingsMenu" class="hidden">
   <label><input type="checkbox" id="toggleFly"> Salli lentäminen</label><br>
+  <label><input type="checkbox" id="builderMode"> Nikkarointitila: loputon lento, rakentaminen ja ei osumia</label><br>
+  <label><input type="checkbox" id="lowPerformanceMode"> Kevyt tila: vähemmän lagia</label><br>
+  <hr>
+  <strong>Suurkohteet</strong>
+  <div id="landmarkList" aria-label="Suurkohteet"></div>
+  <small>Ilmalaiva on listan ensimmäisenä. Napsauta kohdetta ja siirry sen sisäänkäynnille.</small>
+  <hr>
+  <strong>Rakennusblokit</strong>
+  <div id="settingsBlockPalette" aria-label="Rakennusblokit"></div>
+  <small>Blokki vaihtuu <strong>R</strong>-näppäimellä tai klikkaamalla. Ansat (65) toimivat oikeina ansoina. Trampoliini pomputtaa pelaajaa korkealle. Portaat asetetaan käsin ja niitä voi kävellä ylös ja alas.</small>
+  <hr>
   <label><input type="checkbox" id="showHearts" checked> Näytä sydämet</label><br>
   <label><input type="checkbox" id="toggleBoots"> Pomppukengät (on/off)</label><br>
   <strong>Äänet</strong><br>
   <label><input type="checkbox" id="sfxMute"> Mykistä äänet</label><br>
   <label>Efektien voimakkuus: <input type="range" id="sfxVol" min="0" max="1" step="0.01" value="0.8"></label>
-  <label>Työkalu: <select id="toolSelect"></select></label>
+  <label>Aseen haku: <input id="weaponSearch" class="weapon-search" type="search" placeholder="nimi tai tunniste" autocomplete="off"></label><br>
+  <label>Työkalu: <select id="toolSelect"></select></label><br>
+  <small id="weaponPowerDescription">Valitse ase nähdäksesi sen voiman.</small>
+  <label>Aseen skini:
+    <select id="weaponSkinSelect">
+      <option value="classic">Klassinen</option>
+      <option value="neon">Neon</option>
+      <option value="magma">Magma</option>
+      <option value="gold">Kulta</option>
+      <option value="toxic">Myrkky</option>
+    </select>
+  </label>
+  <label>Dronetyyppi:
+    <select id="droneTypeSelect"></select>
+  </label>
+  <label>Dronen skini:
+    <select id="droneSkinSelect"></select>
+  </label>
+  <button id="spawnDroneBtn" type="button">Kutsu drone (max 4)</button>
+  <small id="droneDescription">Tiedusteludrooni: ampuu nopeasti.</small>
+  <label>Boost-haarniska:
+    <select id="boostArmorSelect"></select>
+  </label>
+  <small id="boostArmorDescription">Vaikuttaa vain boost-aseisiin.</small>
+  <details id="bossAchievementsPanel">
+    <summary>Bossisaavutukset</summary>
+    <div id="bossAchievements"></div>
+  </details>
   <hr>
   <strong>Mopo</strong><br>
   <label>Väri: <input type="color" id="mopedColor" value="#ff6a00"></label><br>
@@ -182,7 +289,7 @@
   </div>
   <div class="tc-right">
     <button id="btnJump" class="tc-btn primary" aria-label="Hyppy">⤒</button>
-    <button id="btnPlaceToggle" class="tc-btn" aria-label="Aseta lankku">Aseta</button>
+    <button id="btnPlaceToggle" class="tc-btn" aria-label="Aseta valittu blokki">Aseta</button>
   </div>
   <div class="tc-hint">Napauta pelialuetta louhiaksesi/ammuaksesi</div>
   <div class="tc-mode" id="placeModeBadge">Asetustila</div>
@@ -246,13 +353,64 @@
 <div id="startScreen" class="overlay">
   <div class="panel">
     <h1>Ultimate Adventure</h1>
-    <p>Liiku: A/D tai nuolinäppäimet • Hyppy: W/↑/Space • Klikkaa louhi/ammu • Oikea klikkaus asettaa lankun • 1–9/Q työkalut • E avaa kauppiaan kun lähellä</p>
+    <p class="start-subtitle">Valitse maailma ja pelitila</p>
+    <div class="start-world-picker">
+      <strong>Maailmat</strong>
+      <div id="startWorldList" class="start-world-list"></div>
+      <button id="startCreateWorld" type="button">+ Uusi maailma</button>
+    </div>
+    <div class="start-map-picker">
+      <strong>Kartta</strong>
+      <div class="start-map-list">
+        <button class="start-map active" data-map-type="adventure" type="button">🌲 Seikkailu</button>
+        <button class="start-map backrooms-map" data-map-type="backrooms" type="button">🟨 Backrooms-areena</button>
+        <button class="start-map pinball-map" data-map-type="pinball" type="button">🟣 Flipperi</button>
+        <button class="start-map redstone-map" data-map-type="redstone" type="button">🔴 Punakivi-maailma</button>
+      </div>
+      <small id="startMapDescription">Laaja maailma, metsää, aavikkoa, lunta ja merta.</small>
+    </div>
+    <div class="start-mode-picker">
+      <strong>Pelitila</strong>
+      <div class="start-mode-list">
+        <button class="start-mode active" data-start-mode="adventure" type="button">Seikkailu</button>
+        <button class="start-mode multiplayer-mode" data-start-mode="multiplayer" type="button">Moninpeli</button>
+        <button class="start-mode rivals-mode" data-start-mode="rivals" type="button">Rivals-kisa</button>
+      </div>
+      <small id="startModeDescription">Tutki maailmaa, kerää varusteita ja rakenna.</small>
+    </div>
+    <p>Liiku: A/D tai nuolinäppäimet • Hyppy: W/↑/Space • Ctrl/Fn/F: liu'u maata pitkin enintään 8 blokkia • Klikkaa louhi/ammu • Oikea klikkaus asettaa valitun blokin • R vaihtaa blokin • C craftaa yhden • T craftaa kaikki puut • 1–9/Q/hiiren rulla työkalut • E avaa kauppiaan kun lähellä</p>
     <div class="actions">
-      <button id="btnStart">Aloita peli</button>
+      <button id="btnStart">Aloita valittu peli</button>
+      <button id="btnTutorial" type="button">Näytä tutoriaali</button>
       <button id="btnStartSettings">Asetukset</button>
     </div>
+    <small class="start-note">Valikossa ei voi rikkoa blokkeja. Moninpeli tarvitsee käynnissä olevan palvelimen.</small>
   </div>
   
+</div>
+
+<div id="tutorialOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="tutorialTitle">
+  <div class="panel tutorial-panel">
+    <div id="tutorialProgress" class="tutorial-progress">Vaihe 1 / 7</div>
+    <div id="tutorialIcon" class="tutorial-icon" aria-hidden="true">🎮</div>
+    <h1 id="tutorialTitle">Tervetuloa seikkailuun!</h1>
+    <p id="tutorialText" class="tutorial-text"></p>
+    <div id="tutorialKeys" class="tutorial-keys"></div>
+    <div class="actions">
+      <button id="tutorialSkip" type="button">Ohita</button>
+      <button id="tutorialNext" type="button">Seuraava</button>
+    </div>
+  </div>
+</div>
+
+<div id="deathScreen" class="overlay hidden">
+  <div class="panel death-panel">
+    <h1>Kuolit</h1>
+    <p>Seikkailu päättyi. Aloita uudelleen samasta napista.</p>
+    <div class="actions">
+      <button id="btnDeathRestart">Aloita uudelleen</button>
+    </div>
+  </div>
 </div>
 
 <!-- Paussivalikko -->
@@ -295,7 +453,7 @@
     <div class="battle-head">
       <div>
         <h3>Taistelulava</h3>
-        <p>Kerää taistelueläimiä maailmasta ja lähetä jopa 80 niistä ilmapallosotilaita vastaan.</p>
+        <p>Kerää taistelueläimiä maailmasta ja lähetä niin monta taistelijaa kuin omistat.</p>
       </div>
       <button id="battleClose">Sulje</button>
     </div>
